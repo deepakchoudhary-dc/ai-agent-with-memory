@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 import logging
 
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, Response
 import requests
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -145,11 +145,48 @@ def get_history(session_id):
 def get_sessions():
     """Get list of all chat sessions."""
     try:
-        sessions = chat_manager.get_all_sessions()
+        query = request.args.get('q', '').strip()
+        sessions = chat_manager.search_sessions(query) if query else chat_manager.get_all_sessions()
         return jsonify({'sessions': sessions})
     except Exception as e:
         logger.error(f"Error getting sessions: {str(e)}")
         return jsonify({'error': 'Failed to get sessions'}), 500
+
+@app.route('/sessions/<session_id>/rename', methods=['POST'])
+def rename_session(session_id):
+    """Rename an existing chat session."""
+    try:
+        data = request.get_json(force=True) or {}
+        title = data.get('title', '').strip()
+
+        if not title:
+            return jsonify({'error': 'Session title cannot be empty'}), 400
+
+        if not chat_manager.rename_session(session_id, title):
+            return jsonify({'error': 'Session not found'}), 404
+
+        return jsonify({'session_id': session_id, 'title': title})
+    except Exception as e:
+        logger.error(f"Error renaming session: {str(e)}")
+        return jsonify({'error': 'Failed to rename session'}), 500
+
+@app.route('/sessions/<session_id>', methods=['DELETE'])
+def delete_session(session_id):
+    """Delete a chat session and its messages."""
+    try:
+        deleted = chat_manager.delete_session(session_id)
+        if not deleted:
+            return jsonify({'error': 'Session not found'}), 404
+
+        if session.get('session_id') == session_id:
+            new_session_id = str(uuid.uuid4())
+            session['session_id'] = new_session_id
+            return jsonify({'deleted': True, 'new_session_id': new_session_id})
+
+        return jsonify({'deleted': True})
+    except Exception as e:
+        logger.error(f"Error deleting session: {str(e)}")
+        return jsonify({'error': 'Failed to delete session'}), 500
 
 @app.route('/new_session', methods=['POST'])
 def new_session():
@@ -161,6 +198,55 @@ def new_session():
     except Exception as e:
         logger.error(f"Error creating new session: {str(e)}")
         return jsonify({'error': 'Failed to create new session'}), 500
+
+@app.route('/export/<session_id>')
+def export_session(session_id):
+    """Export a session as Markdown or JSON."""
+    try:
+        messages = chat_manager.get_session_messages(session_id)
+        sessions = chat_manager.get_all_sessions()
+        session_data = next((item for item in sessions if item['session_id'] == session_id), None)
+
+        if not session_data:
+            return jsonify({'error': 'Session not found'}), 404
+
+        export_format = request.args.get('format', 'markdown').lower()
+
+        if export_format == 'json':
+            return jsonify({
+                'session': session_data,
+                'messages': messages
+            })
+
+        markdown_lines = [
+            f"# {session_data.get('title') or 'New Chat'}",
+            '',
+            f"- Session ID: {session_id}",
+            f"- Created: {session_data.get('created_at')}",
+            f"- Last activity: {session_data.get('last_activity')}",
+            ''
+        ]
+
+        for message in messages:
+            role_label = 'User' if message['role'] == 'user' else 'Assistant'
+            markdown_lines.extend([
+                f"## {role_label}",
+                '',
+                message['content'],
+                ''
+            ])
+
+        export_body = '\n'.join(markdown_lines).strip() + '\n'
+        return Response(
+            export_body,
+            mimetype='text/markdown',
+            headers={
+                'Content-Disposition': f'attachment; filename=session-{session_id}.md'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error exporting session: {str(e)}")
+        return jsonify({'error': 'Failed to export session'}), 500
 
 def build_context(relevant_memories: List[Dict], recent_messages: List[Dict], user_message: str) -> List[Dict]:
     """

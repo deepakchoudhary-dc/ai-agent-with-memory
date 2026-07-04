@@ -15,6 +15,9 @@ A sophisticated ChatGPT-like interface built with Flask that integrates Qwen 3.1
 - **Real-time Web Interface**: Modern, responsive chat UI with real-time messaging
 - **Context-Aware Responses**: Intelligent context window management for optimal AI performance
 - **Transparent Memory**: Shows which past conversations influenced current responses
+- **Chat Management**: Search, rename, delete, and export conversations from the sidebar
+- **Markdown Responses**: Assistant replies render basic markdown and code blocks in the browser
+- **Copy Actions**: Copy assistant responses directly from each message
 
 ### Technical Features
 - **Semantic Memory System**: Uses FAISS for efficient similarity search across embeddings

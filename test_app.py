@@ -47,6 +47,34 @@ class TestChatHistoryManager(unittest.TestCase):
         sessions = self.chat_manager.get_all_sessions()
         self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0]['session_id'], session_id)
+
+    def test_session_rename_and_delete(self):
+        """Test renaming and deleting sessions."""
+        session_id = "test_session"
+        self.chat_manager.add_message(session_id, "user", "Hello memory search")
+
+        renamed = self.chat_manager.rename_session(session_id, "Renamed Chat")
+        self.assertTrue(renamed)
+
+        sessions = self.chat_manager.get_all_sessions()
+        self.assertEqual(sessions[0]['title'], "Renamed Chat")
+
+        deleted = self.chat_manager.delete_session(session_id)
+        self.assertTrue(deleted)
+        self.assertEqual(self.chat_manager.get_all_sessions(), [])
+
+    def test_session_search(self):
+        """Test searching sessions by content."""
+        first_session = "session_one"
+        second_session = "session_two"
+        self.chat_manager.add_message(first_session, "user", "Talk about project planning")
+        self.chat_manager.add_message(second_session, "user", "Discuss vacation plans")
+
+        results = self.chat_manager.search_sessions("project")
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['session_id'], first_session)
+        self.assertIn("project", results[0]['snippet'].lower())
     
     def test_database_health(self):
         """Test database health check."""
@@ -98,7 +126,8 @@ class TestQwenModelInterface(unittest.TestCase):
         messages = [{"role": "user", "content": "Hello"}]
         response = self.qwen_interface.generate_response(messages)
         
-        self.assertEqual(response, "Test response")
+        self.assertIsInstance(response, dict)
+        self.assertEqual(response["answer"], "Test response")
         mock_post.assert_called_once()
     
     @patch('utils.requests.post')

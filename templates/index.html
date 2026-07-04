@@ -39,6 +39,26 @@
             flex-direction: column;
         }
 
+        .sidebar-toolbar {
+            padding: 12px 16px 0;
+            background: #f8f9fa;
+        }
+
+        .session-search {
+            width: 100%;
+            border: 1px solid #d9dee5;
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 14px;
+            outline: none;
+            background: white;
+        }
+
+        .session-search:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+        }
+
         .sidebar-header {
             padding: 20px;
             background: #343a40;
@@ -90,6 +110,52 @@
             color: white;
         }
 
+        .session-item-body {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .session-item-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .session-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .session-action-btn {
+            border: none;
+            background: rgba(0, 0, 0, 0.06);
+            color: inherit;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .session-item.active .session-action-btn {
+            background: rgba(255, 255, 255, 0.18);
+        }
+
+        .session-snippet {
+            font-size: 12px;
+            color: #6c757d;
+            line-height: 1.35;
+        }
+
+        .session-item.active .session-meta,
+        .session-item.active .session-snippet {
+            color: rgba(255, 255, 255, 0.85);
+        }
+
         .session-title {
             font-weight: 500;
             margin-bottom: 5px;
@@ -115,14 +181,38 @@
             background: #f8f9fa;
             border-bottom: 1px solid #e9ecef;
             display: flex;
-            justify-content: between;
+            justify-content: space-between;
             align-items: center;
+            gap: 12px;
+        }
+
+        .chat-header-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .chat-title {
             font-size: 20px;
             font-weight: 600;
             color: #343a40;
+        }
+
+        .secondary-btn {
+            padding: 10px 14px;
+            border: 1px solid #d9dee5;
+            background: white;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #343a40;
+            transition: all 0.2s ease;
+        }
+
+        .secondary-btn:hover {
+            border-color: #007bff;
+            color: #007bff;
+            box-shadow: 0 8px 20px rgba(0, 123, 255, 0.08);
         }
 
         .memory-indicator {
@@ -157,6 +247,64 @@
             border-radius: 18px;
             line-height: 1.4;
             word-wrap: break-word;
+        }
+
+        .message-text,
+        .message-markdown {
+            display: block;
+        }
+
+        .message-markdown p {
+            margin-bottom: 10px;
+        }
+
+        .message-markdown p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-markdown pre {
+            background: rgba(15, 23, 42, 0.96);
+            color: #f8fafc;
+            padding: 14px;
+            border-radius: 12px;
+            overflow-x: auto;
+            margin: 10px 0;
+            white-space: pre-wrap;
+        }
+
+        .message-markdown code {
+            background: rgba(148, 163, 184, 0.18);
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-family: Consolas, 'Courier New', monospace;
+            font-size: 0.95em;
+        }
+
+        .message-markdown pre code {
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+            color: inherit;
+        }
+
+        .message-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 10px;
+        }
+
+        .copy-btn {
+            border: none;
+            background: rgba(0, 123, 255, 0.08);
+            color: #0056b3;
+            border-radius: 999px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .copy-btn:hover {
+            background: rgba(0, 123, 255, 0.16);
         }
 
         .message.user .message-content {
@@ -355,6 +503,9 @@
                 <h3>Qwen Chat</h3>
                 <button class="new-chat-btn" onclick="startNewSession()">+ New Chat</button>
             </div>
+            <div class="sidebar-toolbar">
+                <input type="search" class="session-search" id="session-search" placeholder="Search chats or messages...">
+            </div>
             <div class="sessions-list" id="sessions-list">
                 <!-- Sessions will be loaded here -->
             </div>
@@ -363,8 +514,11 @@
         <div class="main-chat">
             <div class="chat-header">
                 <div class="chat-title">AI Assistant with Memory</div>
-                <div class="memory-indicator" id="memory-indicator" style="display: none;">
-                    Memory Active
+                <div class="chat-header-actions">
+                    <button class="secondary-btn" id="export-btn" type="button">Export Chat</button>
+                    <div class="memory-indicator" id="memory-indicator" style="display: none;">
+                        Memory Active
+                    </div>
                 </div>
             </div>
 
@@ -406,6 +560,7 @@
             constructor() {
                 this.sessionId = '{{ session_id }}';
                 this.isTyping = false;
+                this.searchTimer = null;
                 this.initializeElements();
                 this.setupEventListeners();
                 this.loadSessions();
@@ -421,18 +576,26 @@
                 this.sessionsList = document.getElementById('sessions-list');
                 this.statusIndicator = document.getElementById('status-indicator');
                 this.memoryIndicator = document.getElementById('memory-indicator');
+                this.sessionSearch = document.getElementById('session-search');
+                this.exportBtn = document.getElementById('export-btn');
             }
 
             setupEventListeners() {
                 this.chatForm.addEventListener('submit', (e) => this.handleSubmit(e));
+                this.exportBtn.addEventListener('click', () => this.exportCurrentChat());
+                this.sessionSearch.addEventListener('input', () => {
+                    clearTimeout(this.searchTimer);
+                    this.searchTimer = setTimeout(() => {
+                        this.loadSessions(this.sessionSearch.value.trim());
+                    }, 250);
+                });
                 this.chatInput.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         this.handleSubmit(e);
                     }
                 });
-                
-                // Auto-resize textarea
+
                 this.chatInput.addEventListener('input', () => {
                     this.chatInput.style.height = 'auto';
                     this.chatInput.style.height = Math.min(this.chatInput.scrollHeight, 120) + 'px';
@@ -441,7 +604,7 @@
 
             async handleSubmit(e) {
                 e.preventDefault();
-                
+
                 const message = this.chatInput.value.trim();
                 if (!message || this.isTyping) return;
 
@@ -454,15 +617,17 @@
                     const response = await fetch('/chat', {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json',
+                            'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({ message: message })
-                    });                    const data = await response.json();
+                    });
+                    const data = await response.json();
 
                     if (response.ok) {
                         this.addMessage('assistant', data.response, data.memories_used, data.thinking);
                         this.sessionId = data.session_id;
                         this.updateMemoryIndicator(data.memories_used);
+                        this.loadSessions(this.sessionSearch.value.trim());
                     } else {
                         this.showError(data.error || 'Failed to get response');
                     }
@@ -471,71 +636,169 @@
                 } finally {
                     this.setTyping(false);
                 }
-            }            addMessage(role, content, memories = null, thinking = null) {
+            }
+
+            addMessage(role, content, memories = null, thinking = null) {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message ${role}`;
-                
+
                 const avatar = document.createElement('div');
                 avatar.className = 'message-avatar';
                 avatar.textContent = role === 'user' ? 'U' : 'Q';
-                
+
                 const messageContent = document.createElement('div');
                 messageContent.className = 'message-content';
-                
-                // Add thinking section if present (only for assistant)
+
                 if (role === 'assistant' && thinking) {
                     const thinkingDiv = document.createElement('div');
                     thinkingDiv.className = 'thinking-section';
-                    
+
                     const thinkingHeader = document.createElement('div');
                     thinkingHeader.className = 'thinking-header';
                     thinkingHeader.innerHTML = '🤔 Thinking...';
-                    
+
                     const thinkingContent = document.createElement('div');
                     thinkingContent.className = 'thinking-content';
                     thinkingContent.textContent = thinking;
-                    
+
                     thinkingDiv.appendChild(thinkingHeader);
                     thinkingDiv.appendChild(thinkingContent);
                     messageContent.appendChild(thinkingDiv);
                 }
-                
+
                 const contentDiv = document.createElement('div');
-                contentDiv.className = role === 'assistant' && thinking ? 'answer-section' : 'message-text';
-                contentDiv.textContent = content;
-                
+                contentDiv.className = role === 'assistant' ? 'message-markdown' : 'message-text';
+
+                if (role === 'assistant') {
+                    contentDiv.innerHTML = this.renderMarkdown(content);
+                } else {
+                    contentDiv.textContent = content;
+                }
+
                 const timestamp = document.createElement('div');
                 timestamp.className = 'message-timestamp';
                 timestamp.textContent = new Date().toLocaleTimeString();
-                
+
                 messageContent.appendChild(contentDiv);
                 messageContent.appendChild(timestamp);
-                
-                // Add memory context if available
+
+                if (role === 'assistant') {
+                    const actions = document.createElement('div');
+                    actions.className = 'message-actions';
+
+                    const copyButton = document.createElement('button');
+                    copyButton.type = 'button';
+                    copyButton.className = 'copy-btn';
+                    copyButton.textContent = 'Copy';
+                    copyButton.addEventListener('click', async () => {
+                        try {
+                            await navigator.clipboard.writeText(content);
+                            copyButton.textContent = 'Copied';
+                            setTimeout(() => {
+                                copyButton.textContent = 'Copy';
+                            }, 1200);
+                        } catch (error) {
+                            console.error('Failed to copy message:', error);
+                        }
+                    });
+
+                    actions.appendChild(copyButton);
+                    messageContent.appendChild(actions);
+                }
+
                 if (memories && memories.length > 0) {
                     const memoryContext = document.createElement('div');
                     memoryContext.className = 'memory-context';
-                    
+
                     const memoryTitle = document.createElement('div');
                     memoryTitle.className = 'memory-context-title';
                     memoryTitle.textContent = `Referenced ${memories.length} past conversation(s):`;
                     memoryContext.appendChild(memoryTitle);
-                    
+
                     memories.forEach(memory => {
                         const memoryItem = document.createElement('div');
                         memoryItem.className = 'memory-item';
                         memoryItem.textContent = `${memory.content} (${(memory.similarity * 100).toFixed(1)}% similar)`;
                         memoryContext.appendChild(memoryItem);
                     });
-                    
+
                     messageContent.appendChild(memoryContext);
                 }
-                
+
                 messageDiv.appendChild(avatar);
                 messageDiv.appendChild(messageContent);
-                
+
                 this.chatMessages.appendChild(messageDiv);
                 this.scrollToBottom();
+            }
+
+            escapeHtml(text) {
+                return text
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            renderMarkdown(text) {
+                const lines = text.split('\n');
+                const parts = [];
+                let paragraph = [];
+                let inCodeBlock = false;
+                let codeLines = [];
+
+                const flushParagraph = () => {
+                    if (paragraph.length > 0) {
+                        parts.push(`<p>${paragraph.join('<br>')}</p>`);
+                        paragraph = [];
+                    }
+                };
+
+                const flushCodeBlock = () => {
+                    parts.push(`<pre><code>${this.escapeHtml(codeLines.join('\n'))}</code></pre>`);
+                    codeLines = [];
+                };
+
+                for (const rawLine of lines) {
+                    const line = rawLine ?? '';
+
+                    if (line.trim().startsWith('```')) {
+                        if (inCodeBlock) {
+                            flushCodeBlock();
+                            inCodeBlock = false;
+                        } else {
+                            flushParagraph();
+                            inCodeBlock = true;
+                        }
+                        continue;
+                    }
+
+                    if (inCodeBlock) {
+                        codeLines.push(line);
+                        continue;
+                    }
+
+                    if (!line.trim()) {
+                        flushParagraph();
+                        continue;
+                    }
+
+                    let formatted = this.escapeHtml(line);
+                    formatted = formatted
+                        .replace(/`([^`]+)`/g, '<code>$1</code>')
+                        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+                    paragraph.push(formatted);
+                }
+
+                if (inCodeBlock) {
+                    flushCodeBlock();
+                }
+
+                flushParagraph();
+
+                return parts.join('');
             }
 
             setTyping(isTyping) {
@@ -568,11 +831,11 @@
                 }
             }
 
-            async loadSessions() {
+            async loadSessions(query = '') {
                 try {
-                    const response = await fetch('/sessions');
+                    const response = await fetch(`/sessions?q=${encodeURIComponent(query)}`);
                     const data = await response.json();
-                    
+
                     if (response.ok) {
                         this.renderSessions(data.sessions);
                     }
@@ -583,42 +846,174 @@
 
             renderSessions(sessions) {
                 this.sessionsList.innerHTML = '';
-                
+
                 sessions.forEach(session => {
                     const sessionDiv = document.createElement('div');
                     sessionDiv.className = 'session-item';
                     if (session.session_id === this.sessionId) {
                         sessionDiv.classList.add('active');
                     }
-                    
-                    sessionDiv.innerHTML = `
-                        <div class="session-title">${session.title}</div>
-                        <div class="session-meta">
-                            ${session.message_count} messages • ${new Date(session.last_activity).toLocaleDateString()}
-                        </div>
-                    `;
-                    
+
+                    const body = document.createElement('div');
+                    body.className = 'session-item-body';
+
+                    const header = document.createElement('div');
+                    header.className = 'session-item-header';
+
+                    const textBlock = document.createElement('div');
+
+                    const title = document.createElement('div');
+                    title.className = 'session-title';
+                    title.textContent = session.title || 'New Chat';
+
+                    const meta = document.createElement('div');
+                    meta.className = 'session-meta';
+                    meta.textContent = `${session.message_count} messages • ${new Date(session.last_activity).toLocaleDateString()}`;
+
+                    textBlock.appendChild(title);
+                    textBlock.appendChild(meta);
+
+                    if (session.snippet) {
+                        const snippet = document.createElement('div');
+                        snippet.className = 'session-snippet';
+                        snippet.textContent = session.snippet;
+                        textBlock.appendChild(snippet);
+                    }
+
+                    const actions = document.createElement('div');
+                    actions.className = 'session-actions';
+
+                    const renameButton = document.createElement('button');
+                    renameButton.type = 'button';
+                    renameButton.className = 'session-action-btn';
+                    renameButton.title = 'Rename chat';
+                    renameButton.textContent = '✎';
+                    renameButton.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        this.renameSession(session.session_id, session.title || 'New Chat');
+                    });
+
+                    const deleteButton = document.createElement('button');
+                    deleteButton.type = 'button';
+                    deleteButton.className = 'session-action-btn';
+                    deleteButton.title = 'Delete chat';
+                    deleteButton.textContent = '×';
+                    deleteButton.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        this.deleteSession(session.session_id);
+                    });
+
+                    actions.appendChild(renameButton);
+                    actions.appendChild(deleteButton);
+
+                    header.appendChild(textBlock);
+                    header.appendChild(actions);
+                    body.appendChild(header);
+                    sessionDiv.appendChild(body);
+
                     sessionDiv.addEventListener('click', () => {
                         this.loadSession(session.session_id);
                     });
-                    
+
                     this.sessionsList.appendChild(sessionDiv);
                 });
+            }
+
+            async renameSession(sessionId, currentTitle) {
+                const nextTitle = window.prompt('Rename chat', currentTitle);
+                if (nextTitle === null) {
+                    return;
+                }
+
+                const cleanedTitle = nextTitle.trim();
+                if (!cleanedTitle) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/sessions/${sessionId}/rename`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ title: cleanedTitle })
+                    });
+
+                    if (response.ok) {
+                        await this.loadSessions(this.sessionSearch.value.trim());
+                    } else {
+                        const data = await response.json();
+                        this.showError(data.error || 'Failed to rename chat');
+                    }
+                } catch (error) {
+                    this.showError('Failed to rename chat');
+                }
+            }
+
+            async deleteSession(sessionId) {
+                const confirmed = window.confirm('Delete this chat and all of its messages?');
+                if (!confirmed) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/sessions/${sessionId}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.new_session_id) {
+                            location.reload();
+                            return;
+                        }
+
+                        await this.loadSessions(this.sessionSearch.value.trim());
+                    } else {
+                        const data = await response.json();
+                        this.showError(data.error || 'Failed to delete chat');
+                    }
+                } catch (error) {
+                    this.showError('Failed to delete chat');
+                }
+            }
+
+            async exportCurrentChat() {
+                try {
+                    const response = await fetch(`/export/${this.sessionId}?format=markdown`);
+                    if (!response.ok) {
+                        const data = await response.json();
+                        this.showError(data.error || 'Failed to export chat');
+                        return;
+                    }
+
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.download = `session-${this.sessionId}.md`;
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(downloadUrl);
+                } catch (error) {
+                    this.showError('Failed to export chat');
+                }
             }
 
             async loadSession(sessionId) {
                 try {
                     const response = await fetch(`/history/${sessionId}`);
                     const data = await response.json();
-                    
+
                     if (response.ok) {
                         this.sessionId = sessionId;
                         this.chatMessages.innerHTML = '';
-                          data.messages.forEach(msg => {
+                        data.messages.forEach(msg => {
                             this.addMessage(msg.role, msg.content, null, null);
                         });
-                        
-                        this.loadSessions(); // Refresh to update active session
+
+                        this.loadSessions(this.sessionSearch.value.trim());
                     }
                 } catch (error) {
                     this.showError('Failed to load session');
@@ -629,12 +1024,11 @@
                 try {
                     const response = await fetch('/health');
                     const data = await response.json();
-                    
+
                     if (response.ok && data.status === 'healthy') {
                         this.statusIndicator.textContent = 'Connected to AI ✓';
                         this.statusIndicator.className = 'status-indicator';
-                        
-                        // Hide status after 3 seconds
+
                         setTimeout(() => {
                             this.statusIndicator.style.display = 'none';
                         }, 3000);
@@ -653,16 +1047,15 @@
             try {
                 const response = await fetch('/new_session', { method: 'POST' });
                 const data = await response.json();
-                
+
                 if (response.ok) {
-                    location.reload(); // Simple refresh to start new session
+                    location.reload();
                 }
             } catch (error) {
                 console.error('Failed to start new session:', error);
             }
         }
 
-        // Initialize the chat when the page loads
         document.addEventListener('DOMContentLoaded', () => {
             new QwenChat();
         });

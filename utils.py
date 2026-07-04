@@ -66,6 +66,7 @@ class ChatHistoryManager:
         """Add a new message to the database."""
         message_id = str(uuid.uuid4())
         timestamp = datetime.now()
+        generated_title = self._generate_session_title(content, role)
         
         with self.lock:
             conn = sqlite3.connect(self.db_path)
@@ -77,11 +78,21 @@ class ChatHistoryManager:
                 VALUES (?, ?, ?, ?, ?)
             ''', (message_id, session_id, role, content, timestamp))
             
-            # Update or create session
+            # Update or create session without clobbering manually edited titles
             cursor.execute('''
-                INSERT OR REPLACE INTO sessions (session_id, last_activity, title)
-                VALUES (?, ?, ?)
-            ''', (session_id, timestamp, self._generate_session_title(content, role)))
+                INSERT OR IGNORE INTO sessions (session_id, created_at, last_activity, title)
+                VALUES (?, ?, ?, ?)
+            ''', (session_id, timestamp, timestamp, generated_title))
+
+            cursor.execute('''
+                UPDATE sessions
+                SET last_activity = ?,
+                    title = CASE
+                        WHEN title IS NULL OR title = '' THEN ?
+                        ELSE title
+                    END
+                WHERE session_id = ?
+            ''', (timestamp, generated_title, session_id))
             
             conn.commit()
             conn.close()
@@ -193,6 +204,80 @@ class ChatHistoryManager:
             })
         
         return sessions
+
+    def search_sessions(self, query: str, limit: int = 50) -> List[Dict]:
+        """Search sessions by title or message content."""
+        normalized_query = query.strip().lower()
+        if not normalized_query:
+            return self.get_all_sessions()[:limit]
+
+        sessions = self.get_all_sessions()
+        matched_sessions = []
+
+        with self.lock:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            for session in sessions:
+                title = (session.get('title') or '').lower()
+                if normalized_query in title:
+                    session_copy = session.copy()
+                    session_copy['snippet'] = session.get('title') or 'New Chat'
+                    matched_sessions.append(session_copy)
+                    continue
+
+                cursor.execute(
+                    '''
+                        SELECT content
+                        FROM messages
+                        WHERE session_id = ? AND lower(content) LIKE ?
+                        ORDER BY timestamp DESC
+                        LIMIT 1
+                    ''',
+                    (session['session_id'], f'%{normalized_query}%')
+                )
+                row = cursor.fetchone()
+                if row:
+                    session_copy = session.copy()
+                    snippet = row[0].replace('\n', ' ').strip()
+                    session_copy['snippet'] = snippet[:120] + ('...' if len(snippet) > 120 else '')
+                    matched_sessions.append(session_copy)
+
+            conn.close()
+
+        return matched_sessions[:limit]
+
+    def rename_session(self, session_id: str, title: str) -> bool:
+        """Rename a session."""
+        cleaned_title = title.strip()
+        if not cleaned_title:
+            return False
+
+        with self.lock:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE sessions SET title = ? WHERE session_id = ?',
+                (cleaned_title, session_id)
+            )
+            updated = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+
+        return updated
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session and all of its messages."""
+        with self.lock:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
+            cursor.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+
+        return deleted
     
     def get_messages_with_embeddings(self, exclude_session: str = None) -> List[Dict]:
         """Get all messages with embeddings for similarity search."""
