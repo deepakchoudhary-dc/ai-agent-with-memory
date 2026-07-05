@@ -1,6 +1,6 @@
 # Qwen Chat App with Human-like Memory
 
-A sophisticated ChatGPT-like interface built with Flask that integrates Qwen 3.1 7B model with human-like memory capabilities using semantic search and embeddings.
+A sophisticated ChatGPT-like interface built with Flask that integrates LLM's (Open AI, Anthropic, Or any other Compatible API/ Ollama based) with human-like memory capabilities using semantic search and embeddings.
 
 ![Qwen Chat Interface](https://img.shields.io/badge/Interface-Modern%20Web%20UI-blue)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-green)
@@ -30,7 +30,7 @@ A sophisticated ChatGPT-like interface built with Flask that integrates Qwen 3.1
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Web Frontend  │    │  Flask Backend   │    │   Qwen Model    │
+│   Web Frontend  │    │  Flask Backend   │    │   LLM's/ API's   │
 │   (HTML/JS)     │◄──►│                  │◄──►│   (via Ollama)  │
 └─────────────────┘    │  - Chat API      │    └─────────────────┘
                        │  - Session Mgmt   │
@@ -47,7 +47,7 @@ A sophisticated ChatGPT-like interface built with Flask that integrates Qwen 3.1
 ### Prerequisites
 
 1. **Python 3.8+** installed on your system
-2. **Ollama** running locally with Qwen model
+2. **Ollama** running locally with downloaded model
 3. **Git** for cloning (optional)
 
 ### Installation
@@ -79,7 +79,7 @@ A sophisticated ChatGPT-like interface built with Flask that integrates Qwen 3.1
    # Install Ollama first (visit https://ollama.ai)
    
    # Pull Qwen model
-   ollama pull qwen:7b
+   ollama pull (model name)
    
    # Verify model is running
    ollama list
@@ -90,7 +90,7 @@ A sophisticated ChatGPT-like interface built with Flask that integrates Qwen 3.1
    ```env
    SECRET_KEY=your-secret-key-here
    OLLAMA_BASE_URL=http://localhost:11434
-   QWEN_MODEL_NAME=qwen:7b
+   OLLAMA_MODEL_NAME=Model_name
    MAX_CONTEXT_LENGTH=4096
    TOP_K_MEMORIES=5
    DATABASE_PATH=chat_history.db
@@ -180,7 +180,7 @@ GET /health
 #### Ollama Connection Failed
 - Ensure Ollama is running: `ollama list`
 - Check the correct port (default: 11434)
-- Verify Qwen model is downloaded: `ollama pull qwen:7b`
+- Verify Qwen model is downloaded: `ollama pull model_name`
 
 #### Memory Not Working
 - Check if sentence-transformers is properly installed
@@ -332,7 +332,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📚 Additional Resources
 
-- [Qwen Documentation](https://github.com/QwenLM/Qwen)
+- [Qwen Documentation](https://github.com/QwenLM/Qwen)/ Please refer to the model installed documents if provided 
 - [Ollama Documentation](https://ollama.ai/docs)
 - [Sentence Transformers Documentation](https://sbert.net/)
 - [FAISS Documentation](https://faiss.ai/)
