@@ -13,6 +13,60 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            <script>
+                class QwenChat {
+                    constructor() {
+                        this.sessionId = '{{ session_id }}';
+                        this.isTyping = false;
+                        this.searchTimer = null;
+                        this.initializeElements();
+                        this.setupEventListeners();
+                        this.loadSessions();
+                        this.loadAttachments();
+                        this.checkHealth();
+                    }
+
+                    initializeElements() {
+                        this.chatMessages = document.getElementById('chat-messages');
+                        this.chatInput = document.getElementById('chat-input');
+                        this.sendBtn = document.getElementById('send-btn');
+                        this.chatForm = document.getElementById('chat-form');
+                        this.typingIndicator = document.getElementById('typing-indicator');
+                        this.sessionsList = document.getElementById('sessions-list');
+                        this.statusIndicator = document.getElementById('status-indicator');
+                        this.memoryIndicator = document.getElementById('memory-indicator');
+                        this.sessionSearch = document.getElementById('session-search');
+                        this.exportBtn = document.getElementById('export-btn');
+                        this.attachBtn = document.getElementById('attach-btn');
+                        this.attachmentInput = document.getElementById('attachment-input');
+                        this.attachmentList = document.getElementById('attachment-list');
+                        this.uploadStatus = document.getElementById('upload-status');
+                    }
+
+                    setupEventListeners() {
+                        this.chatForm.addEventListener('submit', (e) => this.handleSubmit(e));
+                        this.exportBtn.addEventListener('click', () => this.exportCurrentChat());
+                        this.attachBtn.addEventListener('click', () => this.attachmentInput.click());
+                        this.attachmentInput.addEventListener('change', (e) => this.uploadAttachments(e));
+                        this.sessionSearch.addEventListener('input', () => {
+                            clearTimeout(this.searchTimer);
+                            this.searchTimer = setTimeout(() => {
+                                this.loadSessions(this.sessionSearch.value.trim());
+                            }, 250);
+                        });
+                        this.chatInput.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                this.handleSubmit(e);
+                            }
+                        });
+                        this.chatInput.addEventListener('input', () => {
+                            this.chatInput.style.height = 'auto';
+                            this.chatInput.style.height = Math.min(this.chatInput.scrollHeight, 120) + 'px';
+                        });
+                    }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
@@ -39,26 +93,6 @@
             flex-direction: column;
         }
 
-        .sidebar-toolbar {
-            padding: 12px 16px 0;
-            background: #f8f9fa;
-        }
-
-        .session-search {
-            width: 100%;
-            border: 1px solid #d9dee5;
-            border-radius: 12px;
-            padding: 10px 12px;
-            font-size: 14px;
-            outline: none;
-            background: white;
-        }
-
-        .session-search:focus {
-            border-color: #007bff;
-            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
-        }
-
         .sidebar-header {
             padding: 20px;
             background: #343a40;
@@ -82,6 +116,90 @@
 
         .new-chat-btn:hover {
             background: #0056b3;
+        }
+
+        .sidebar-toolbar {
+            padding: 12px 16px 0;
+            background: #f8f9fa;
+        }
+
+        .attachments-panel {
+            padding: 14px 16px 10px;
+            border-bottom: 1px solid #e9ecef;
+            background: #f8f9fa;
+        }
+
+        .attachments-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .attachments-title {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #6c757d;
+        }
+
+        .attachment-upload-btn {
+            border: none;
+            border-radius: 10px;
+            background: #007bff;
+            color: white;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .attachment-upload-btn:hover {
+            background: #0056b3;
+        }
+
+        .attachment-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .attachment-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-size: 12px;
+        }
+
+        .attachment-item strong {
+            display: block;
+            color: #343a40;
+            font-size: 13px;
+            margin-bottom: 2px;
+        }
+
+        .attachment-meta {
+            color: #6c757d;
+        }
+
+        .attachment-empty {
+            color: #6c757d;
+            font-size: 12px;
+            padding: 8px 0 4px;
+        }
+
+        .upload-status {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 8px;
         }
 
         .sessions-list {
@@ -145,17 +263,6 @@
             background: rgba(255, 255, 255, 0.18);
         }
 
-        .session-snippet {
-            font-size: 12px;
-            color: #6c757d;
-            line-height: 1.35;
-        }
-
-        .session-item.active .session-meta,
-        .session-item.active .session-snippet {
-            color: rgba(255, 255, 255, 0.85);
-        }
-
         .session-title {
             font-weight: 500;
             margin-bottom: 5px;
@@ -166,8 +273,15 @@
             color: #6c757d;
         }
 
-        .session-item.active .session-meta {
-            color: rgba(255, 255, 255, 0.8);
+        .session-snippet {
+            font-size: 12px;
+            color: #6c757d;
+            line-height: 1.35;
+        }
+
+        .session-item.active .session-meta,
+        .session-item.active .session-snippet {
+            color: rgba(255, 255, 255, 0.85);
         }
 
         .main-chat {
@@ -360,7 +474,9 @@
             font-weight: bold;
             margin-bottom: 5px;
             color: #856404;
-        }        .memory-item {
+        }
+
+        .memory-item {
             margin-bottom: 5px;
             padding: 5px;
             background: rgba(255, 255, 255, 0.5);
@@ -393,10 +509,6 @@
             padding: 8px;
             border-radius: 4px;
             border-left: 3px solid #3498db;
-        }        .answer-section {
-            background: rgba(255, 255, 255, 0.9);
-            padding: 8px 0;
-            border-radius: 4px;
         }
 
         .chat-input-container {
@@ -478,359 +590,6 @@
             background: #f8d7da;
             color: #721c24;
         }
-
-        @media (max-width: 768px) {
-            .chat-container {
-                width: 100%;
-                height: 100vh;
-                border-radius: 0;
-            }
-
-            .sidebar {
-                width: 250px;
-            }
-
-            .message-content {
-                max-width: 85%;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="chat-container">
-        <div class="sidebar">
-            <div class="sidebar-header">
-                <h3>Qwen Chat</h3>
-                <button class="new-chat-btn" onclick="startNewSession()">+ New Chat</button>
-            </div>
-            <div class="sidebar-toolbar">
-                <input type="search" class="session-search" id="session-search" placeholder="Search chats or messages...">
-            </div>
-            <div class="sessions-list" id="sessions-list">
-                <!-- Sessions will be loaded here -->
-            </div>
-        </div>
-
-        <div class="main-chat">
-            <div class="chat-header">
-                <div class="chat-title">AI Assistant with Memory</div>
-                <div class="chat-header-actions">
-                    <button class="secondary-btn" id="export-btn" type="button">Export Chat</button>
-                    <div class="memory-indicator" id="memory-indicator" style="display: none;">
-                        Memory Active
-                    </div>
-                </div>
-            </div>
-
-            <div class="status-indicator" id="status-indicator">
-                Connecting to AI...
-            </div>
-
-            <div class="chat-messages" id="chat-messages">
-                <div class="message assistant">
-                    <div class="message-avatar">Q</div>
-                    <div class="message-content">
-                        <div>Hello! I'm Qwen, your AI assistant with memory capabilities. I can remember our previous conversations and provide more personalized responses. How can I help you today?</div>
-                        <div class="message-timestamp">Just now</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="typing-indicator" id="typing-indicator">
-                AI is thinking...
-            </div>
-
-            <div class="chat-input-container">
-                <form class="chat-input-form" id="chat-form">
-                    <textarea 
-                        class="chat-input" 
-                        id="chat-input" 
-                        placeholder="Type your message here..."
-                        rows="1"
-                        maxlength="2000"
-                    ></textarea>
-                    <button type="submit" class="send-btn" id="send-btn">Send</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        class QwenChat {
-            constructor() {
-                this.sessionId = '{{ session_id }}';
-                this.isTyping = false;
-                this.searchTimer = null;
-                this.initializeElements();
-                this.setupEventListeners();
-                this.loadSessions();
-                this.checkHealth();
-            }
-
-            initializeElements() {
-                this.chatMessages = document.getElementById('chat-messages');
-                this.chatInput = document.getElementById('chat-input');
-                this.sendBtn = document.getElementById('send-btn');
-                this.chatForm = document.getElementById('chat-form');
-                this.typingIndicator = document.getElementById('typing-indicator');
-                this.sessionsList = document.getElementById('sessions-list');
-                this.statusIndicator = document.getElementById('status-indicator');
-                this.memoryIndicator = document.getElementById('memory-indicator');
-                this.sessionSearch = document.getElementById('session-search');
-                this.exportBtn = document.getElementById('export-btn');
-            }
-
-            setupEventListeners() {
-                this.chatForm.addEventListener('submit', (e) => this.handleSubmit(e));
-                this.exportBtn.addEventListener('click', () => this.exportCurrentChat());
-                this.sessionSearch.addEventListener('input', () => {
-                    clearTimeout(this.searchTimer);
-                    this.searchTimer = setTimeout(() => {
-                        this.loadSessions(this.sessionSearch.value.trim());
-                    }, 250);
-                });
-                this.chatInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        this.handleSubmit(e);
-                    }
-                });
-
-                this.chatInput.addEventListener('input', () => {
-                    this.chatInput.style.height = 'auto';
-                    this.chatInput.style.height = Math.min(this.chatInput.scrollHeight, 120) + 'px';
-                });
-            }
-
-            async handleSubmit(e) {
-                e.preventDefault();
-
-                const message = this.chatInput.value.trim();
-                if (!message || this.isTyping) return;
-
-                this.addMessage('user', message);
-                this.chatInput.value = '';
-                this.chatInput.style.height = 'auto';
-                this.setTyping(true);
-
-                try {
-                    const response = await fetch('/chat', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ message: message })
-                    });
-                    const data = await response.json();
-
-                    if (response.ok) {
-                        this.addMessage('assistant', data.response, data.memories_used, data.thinking);
-                        this.sessionId = data.session_id;
-                        this.updateMemoryIndicator(data.memories_used);
-                        this.loadSessions(this.sessionSearch.value.trim());
-                    } else {
-                        this.showError(data.error || 'Failed to get response');
-                    }
-                } catch (error) {
-                    this.showError('Network error: ' + error.message);
-                } finally {
-                    this.setTyping(false);
-                }
-            }
-
-            addMessage(role, content, memories = null, thinking = null) {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `message ${role}`;
-
-                const avatar = document.createElement('div');
-                avatar.className = 'message-avatar';
-                avatar.textContent = role === 'user' ? 'U' : 'Q';
-
-                const messageContent = document.createElement('div');
-                messageContent.className = 'message-content';
-
-                if (role === 'assistant' && thinking) {
-                    const thinkingDiv = document.createElement('div');
-                    thinkingDiv.className = 'thinking-section';
-
-                    const thinkingHeader = document.createElement('div');
-                    thinkingHeader.className = 'thinking-header';
-                    thinkingHeader.innerHTML = '🤔 Thinking...';
-
-                    const thinkingContent = document.createElement('div');
-                    thinkingContent.className = 'thinking-content';
-                    thinkingContent.textContent = thinking;
-
-                    thinkingDiv.appendChild(thinkingHeader);
-                    thinkingDiv.appendChild(thinkingContent);
-                    messageContent.appendChild(thinkingDiv);
-                }
-
-                const contentDiv = document.createElement('div');
-                contentDiv.className = role === 'assistant' ? 'message-markdown' : 'message-text';
-
-                if (role === 'assistant') {
-                    contentDiv.innerHTML = this.renderMarkdown(content);
-                } else {
-                    contentDiv.textContent = content;
-                }
-
-                const timestamp = document.createElement('div');
-                timestamp.className = 'message-timestamp';
-                timestamp.textContent = new Date().toLocaleTimeString();
-
-                messageContent.appendChild(contentDiv);
-                messageContent.appendChild(timestamp);
-
-                if (role === 'assistant') {
-                    const actions = document.createElement('div');
-                    actions.className = 'message-actions';
-
-                    const copyButton = document.createElement('button');
-                    copyButton.type = 'button';
-                    copyButton.className = 'copy-btn';
-                    copyButton.textContent = 'Copy';
-                    copyButton.addEventListener('click', async () => {
-                        try {
-                            await navigator.clipboard.writeText(content);
-                            copyButton.textContent = 'Copied';
-                            setTimeout(() => {
-                                copyButton.textContent = 'Copy';
-                            }, 1200);
-                        } catch (error) {
-                            console.error('Failed to copy message:', error);
-                        }
-                    });
-
-                    actions.appendChild(copyButton);
-                    messageContent.appendChild(actions);
-                }
-
-                if (memories && memories.length > 0) {
-                    const memoryContext = document.createElement('div');
-                    memoryContext.className = 'memory-context';
-
-                    const memoryTitle = document.createElement('div');
-                    memoryTitle.className = 'memory-context-title';
-                    memoryTitle.textContent = `Referenced ${memories.length} past conversation(s):`;
-                    memoryContext.appendChild(memoryTitle);
-
-                    memories.forEach(memory => {
-                        const memoryItem = document.createElement('div');
-                        memoryItem.className = 'memory-item';
-                        memoryItem.textContent = `${memory.content} (${(memory.similarity * 100).toFixed(1)}% similar)`;
-                        memoryContext.appendChild(memoryItem);
-                    });
-
-                    messageContent.appendChild(memoryContext);
-                }
-
-                messageDiv.appendChild(avatar);
-                messageDiv.appendChild(messageContent);
-
-                this.chatMessages.appendChild(messageDiv);
-                this.scrollToBottom();
-            }
-
-            escapeHtml(text) {
-                return text
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#39;');
-            }
-
-            renderMarkdown(text) {
-                const lines = text.split('\n');
-                const parts = [];
-                let paragraph = [];
-                let inCodeBlock = false;
-                let codeLines = [];
-
-                const flushParagraph = () => {
-                    if (paragraph.length > 0) {
-                        parts.push(`<p>${paragraph.join('<br>')}</p>`);
-                        paragraph = [];
-                    }
-                };
-
-                const flushCodeBlock = () => {
-                    parts.push(`<pre><code>${this.escapeHtml(codeLines.join('\n'))}</code></pre>`);
-                    codeLines = [];
-                };
-
-                for (const rawLine of lines) {
-                    const line = rawLine ?? '';
-
-                    if (line.trim().startsWith('```')) {
-                        if (inCodeBlock) {
-                            flushCodeBlock();
-                            inCodeBlock = false;
-                        } else {
-                            flushParagraph();
-                            inCodeBlock = true;
-                        }
-                        continue;
-                    }
-
-                    if (inCodeBlock) {
-                        codeLines.push(line);
-                        continue;
-                    }
-
-                    if (!line.trim()) {
-                        flushParagraph();
-                        continue;
-                    }
-
-                    let formatted = this.escapeHtml(line);
-                    formatted = formatted
-                        .replace(/`([^`]+)`/g, '<code>$1</code>')
-                        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                        .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-                    paragraph.push(formatted);
-                }
-
-                if (inCodeBlock) {
-                    flushCodeBlock();
-                }
-
-                flushParagraph();
-
-                return parts.join('');
-            }
-
-            setTyping(isTyping) {
-                this.isTyping = isTyping;
-                this.sendBtn.disabled = isTyping;
-                this.typingIndicator.classList.toggle('show', isTyping);
-                if (isTyping) {
-                    this.scrollToBottom();
-                }
-            }
-
-            scrollToBottom() {
-                this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
-            }
-
-            showError(message) {
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error-message';
-                errorDiv.textContent = message;
-                this.chatMessages.appendChild(errorDiv);
-                this.scrollToBottom();
-            }
-
-            updateMemoryIndicator(memories) {
-                if (memories && memories.length > 0) {
-                    this.memoryIndicator.style.display = 'block';
-                    this.memoryIndicator.textContent = `${memories.length} memories used`;
-                } else {
-                    this.memoryIndicator.style.display = 'none';
-                }
-            }
-
             async loadSessions(query = '') {
                 try {
                     const response = await fetch(`/sessions?q=${encodeURIComponent(query)}`);
@@ -1030,6 +789,8 @@
                         this.statusIndicator.className = 'status-indicator';
 
                         setTimeout(() => {
+
+                const streamingAssistant = this.createStreamingAssistantMessage();
                             this.statusIndicator.style.display = 'none';
                         }, 3000);
                     } else {
@@ -1037,26 +798,289 @@
                         this.statusIndicator.className = 'status-indicator error';
                     }
                 } catch (error) {
-                    this.statusIndicator.textContent = 'Unable to connect to AI service';
+                        body: JSON.stringify({ message: message, stream: true })
                     this.statusIndicator.className = 'status-indicator error';
+
+                    if (!response.ok) {
+                        const data = await response.json();
+                        this.showError(data.error || 'Failed to get response');
+                        return;
+                    }
+
+                    await this.consumeStreamResponse(response, streamingAssistant);
+                } catch (error) {
+                    this.showError('Network error: ' + error.message);
+                } finally {
+                    this.setTyping(false);
                 }
             }
-        }
 
-        async function startNewSession() {
-            try {
-                const response = await fetch('/new_session', { method: 'POST' });
-                const data = await response.json();
+            createStreamingAssistantMessage() {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message assistant';
 
-                if (response.ok) {
-                    location.reload();
-                }
-            } catch (error) {
-                console.error('Failed to start new session:', error);
+                const avatar = document.createElement('div');
+                avatar.className = 'message-avatar';
+                avatar.textContent = 'Q';
+
+                const messageContent = document.createElement('div');
+                messageContent.className = 'message-content';
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-markdown streaming-message';
+                contentDiv.textContent = '';
+
+                const timestamp = document.createElement('div');
+                timestamp.className = 'message-timestamp';
+                timestamp.textContent = 'Just now';
+
+                messageContent.appendChild(contentDiv);
+                messageContent.appendChild(timestamp);
+                messageDiv.appendChild(avatar);
+                messageDiv.appendChild(messageContent);
+                this.chatMessages.appendChild(messageDiv);
+                this.scrollToBottom();
+
+                return {
+                    messageDiv,
+                    messageContent,
+                    contentDiv,
+                    timestamp
+                };
             }
-        }
 
-        document.addEventListener('DOMContentLoaded', () => {
+            async consumeStreamResponse(response, streamingAssistant) {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let streamedText = '';
+                let finalPayload = null;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.trim()) {
+                            continue;
+                        }
+
+                        let payload = null;
+                        try {
+                            payload = JSON.parse(line);
+                        } catch (error) {
+                            continue;
+                        }
+
+                        if (payload.type === 'chunk') {
+                            streamedText += payload.content || '';
+                            streamingAssistant.contentDiv.innerHTML = this.renderMarkdown(streamedText);
+                            this.scrollToBottom();
+                            continue;
+                        }
+
+                        if (payload.type === 'done') {
+                            finalPayload = payload;
+                            continue;
+                        }
+
+                        if (payload.type === 'error') {
+                            throw new Error(payload.error || 'Failed to generate response');
+                        }
+                    }
+                }
+
+                if (buffer.trim()) {
+                    try {
+                        const payload = JSON.parse(buffer.trim());
+                        if (payload.type === 'done') {
+                            finalPayload = payload;
+                        }
+                    } catch (error) {
+                        // Ignore trailing partial buffer
+                    }
+                }
+
+                if (!finalPayload) {
+                    finalPayload = {
+                        response: streamedText,
+                        thinking: '',
+                        session_id: this.sessionId,
+                        memories_used: []
+                    };
+                }
+
+                this.finishStreamingAssistantMessage(streamingAssistant, finalPayload.response || streamedText, finalPayload.thinking || '', finalPayload.memories_used || []);
+                this.sessionId = finalPayload.session_id || this.sessionId;
+                this.updateMemoryIndicator(finalPayload.memories_used || []);
+                this.loadSessions(this.sessionSearch.value.trim());
+            }
+
+            finishStreamingAssistantMessage(streamingAssistant, responseText, thinking, memories) {
+                const messageContent = streamingAssistant.messageContent;
+                messageContent.innerHTML = '';
+
+                if (thinking) {
+                    const thinkingDiv = document.createElement('div');
+                    thinkingDiv.className = 'thinking-section';
+
+                    const thinkingHeader = document.createElement('div');
+                    thinkingHeader.className = 'thinking-header';
+                    thinkingHeader.innerHTML = '🤔 Thinking...';
+
+                    const thinkingContent = document.createElement('div');
+                    thinkingContent.className = 'thinking-content';
+                    thinkingContent.textContent = thinking;
+
+                    thinkingDiv.appendChild(thinkingHeader);
+                    thinkingDiv.appendChild(thinkingContent);
+                    messageContent.appendChild(thinkingDiv);
+                }
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-markdown';
+                contentDiv.innerHTML = this.renderMarkdown(responseText);
+
+                const timestamp = document.createElement('div');
+                timestamp.className = 'message-timestamp';
+                timestamp.textContent = new Date().toLocaleTimeString();
+
+                messageContent.appendChild(contentDiv);
+                messageContent.appendChild(timestamp);
+
+                const actions = document.createElement('div');
+                actions.className = 'message-actions';
+
+                const copyButton = document.createElement('button');
+                copyButton.type = 'button';
+                copyButton.className = 'copy-btn';
+                copyButton.textContent = 'Copy';
+                copyButton.addEventListener('click', async () => {
+                    try {
+                        await navigator.clipboard.writeText(responseText);
+                        copyButton.textContent = 'Copied';
+                        setTimeout(() => {
+                            copyButton.textContent = 'Copy';
+                        }, 1200);
+                    } catch (error) {
+                        console.error('Failed to copy message:', error);
+                    }
+                });
+
+                actions.appendChild(copyButton);
+                messageContent.appendChild(actions);
+
+                if (memories && memories.length > 0) {
+                    const memoryContext = document.createElement('div');
+                    memoryContext.className = 'memory-context';
+
+                    const memoryTitle = document.createElement('div');
+                    memoryTitle.className = 'memory-context-title';
+                    memoryTitle.textContent = `Referenced ${memories.length} past conversation(s):`;
+                    memoryContext.appendChild(memoryTitle);
+
+                    memories.forEach(memory => {
+                        const memoryItem = document.createElement('div');
+                        memoryItem.className = 'memory-item';
+                        memoryItem.textContent = `${memory.content} (${(memory.similarity * 100).toFixed(1)}% similar)`;
+                        memoryContext.appendChild(memoryItem);
+                    });
+
+                    messageContent.appendChild(memoryContext);
+                }
+            }
+
+            async uploadAttachments(event) {
+                const files = Array.from(event.target.files || []);
+                if (!files.length) {
+                    return;
+                }
+
+                const formData = new FormData();
+                files.forEach(file => formData.append('files', file));
+
+                this.uploadStatus.textContent = 'Uploading...';
+
+                try {
+                    const response = await fetch('/attachments/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        this.uploadStatus.textContent = data.error || 'Failed to upload files';
+                        return;
+                    }
+
+                    const uploadedCount = data.uploaded ? data.uploaded.length : 0;
+                    const rejectedCount = data.rejected ? data.rejected.length : 0;
+                    this.uploadStatus.textContent = `${uploadedCount} file(s) attached${rejectedCount ? `, ${rejectedCount} rejected` : ''}`;
+                    this.attachmentInput.value = '';
+                    await this.loadAttachments();
+                } catch (error) {
+                    this.uploadStatus.textContent = 'Failed to upload files';
+                }
+            }
+
+            async loadAttachments() {
+                try {
+                    const response = await fetch(`/attachments?session_id=${encodeURIComponent(this.sessionId)}`);
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        this.renderAttachments(data.attachments || []);
+                    }
+                } catch (error) {
+                    console.error('Failed to load attachments:', error);
+                }
+            }
+
+            renderAttachments(attachments) {
+                this.attachmentList.innerHTML = '';
+
+                if (!attachments.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'attachment-empty';
+                    empty.textContent = 'No files attached to this chat yet.';
+                    this.attachmentList.appendChild(empty);
+                    return;
+                }
+
+                attachments.forEach(attachment => {
+                    const item = document.createElement('div');
+                    item.className = 'attachment-item';
+
+                    const info = document.createElement('div');
+                    const title = document.createElement('strong');
+                    title.textContent = attachment.filename;
+                    const meta = document.createElement('div');
+                    meta.className = 'attachment-meta';
+                    meta.textContent = `${this.formatFileSize(attachment.size || 0)} • attached`;
+                    info.appendChild(title);
+                    info.appendChild(meta);
+
+                    item.appendChild(info);
+                    this.attachmentList.appendChild(item);
+                });
+            }
+
+            formatFileSize(bytes) {
+                if (bytes < 1024) {
+                    return `${bytes} B`;
+                }
+                if (bytes < 1024 * 1024) {
+                    return `${(bytes / 1024).toFixed(1)} KB`;
+                }
+                return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+            }
             new QwenChat();
         });
     </script>

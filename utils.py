@@ -8,7 +8,7 @@ import json
 import uuid
 import logging
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Tuple, Optional, Any, Iterator
 import threading
 
 import requests
@@ -52,11 +52,23 @@ class ChatHistoryManager:
                     title TEXT
                 )
             ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS attachments (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    content_type TEXT,
+                    content TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
             
             # Create indexes for better performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_session_id ON messages(session_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_role ON messages(role)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attachment_session_id ON attachments(session_id)')
             
             conn.commit()
             conn.close()
@@ -272,12 +284,74 @@ class ChatHistoryManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
+            cursor.execute('DELETE FROM attachments WHERE session_id = ?', (session_id,))
             cursor.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
             deleted = cursor.rowcount > 0
             conn.commit()
             conn.close()
 
         return deleted
+
+    def add_attachment(self, session_id: str, filename: str, content: str, content_type: str = None) -> str:
+        """Store a file attachment for a chat session."""
+        attachment_id = str(uuid.uuid4())
+        stored_content = content[:30000]
+
+        with self.lock:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                    INSERT INTO attachments (id, session_id, filename, content_type, content, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (attachment_id, session_id, filename, content_type, stored_content, datetime.now())
+            )
+
+            cursor.execute('''
+                INSERT OR IGNORE INTO sessions (session_id, created_at, last_activity, title)
+                VALUES (?, ?, ?, ?)
+            ''', (session_id, datetime.now(), datetime.now(), None))
+
+            cursor.execute('''
+                UPDATE sessions
+                SET last_activity = ?
+                WHERE session_id = ?
+            ''', (datetime.now(), session_id))
+
+            conn.commit()
+            conn.close()
+
+        return attachment_id
+
+    def get_session_attachments(self, session_id: str) -> List[Dict]:
+        """Get all file attachments for a session."""
+        with self.lock:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                    SELECT id, filename, content_type, content, created_at
+                    FROM attachments
+                    WHERE session_id = ?
+                    ORDER BY created_at ASC
+                ''',
+                (session_id,)
+            )
+            rows = cursor.fetchall()
+            conn.close()
+
+        attachments = []
+        for row in rows:
+            attachments.append({
+                'id': row[0],
+                'filename': row[1],
+                'content_type': row[2],
+                'content': row[3],
+                'created_at': row[4]
+            })
+
+        return attachments
     
     def get_messages_with_embeddings(self, exclude_session: str = None) -> List[Dict]:
         """Get all messages with embeddings for similarity search."""
@@ -512,6 +586,84 @@ class QwenModelInterface:
         except Exception as e:
             logger.error(f"Unexpected error in generate_response: {str(e)}")
             return None
+
+    def stream_response(self, messages: List[Dict[str, str]], 
+                        max_tokens: int = 1000, temperature: float = 0.7) -> Iterator[Dict[str, str]]:
+        """Stream response chunks from Qwen via Ollama."""
+        thinking_messages = messages + [{
+            "role": "user",
+            "content": "Before answering, please think through this step by step. Start your response with <think> and end the thinking part with </think>, then provide your actual answer."
+        }]
+
+        payload = {
+            "model": self.model_name,
+            "messages": thinking_messages,
+            "stream": True,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens
+            }
+        }
+
+        full_response = []
+
+        try:
+            response = requests.post(
+                self.api_url,
+                json=payload,
+                timeout=60,
+                headers={"Content-Type": "application/json"},
+                stream=True
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Ollama API error: {response.status_code} - {response.text}")
+                yield {
+                    'type': 'error',
+                    'error': 'Failed to generate response'
+                }
+                return
+
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                message = chunk.get('message', {})
+                content = message.get('content', '')
+
+                if content:
+                    full_response.append(content)
+                    yield {
+                        'type': 'chunk',
+                        'content': content
+                    }
+
+                if chunk.get('done'):
+                    parsed = self._parse_thinking_response(''.join(full_response).strip())
+                    yield {
+                        'type': 'done',
+                        'thinking': parsed.get('thinking', ''),
+                        'answer': parsed.get('answer', '')
+                    }
+                    return
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request to Ollama failed: {str(e)}")
+            yield {
+                'type': 'error',
+                'error': 'Failed to connect to model service'
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error in stream_response: {str(e)}")
+            yield {
+                'type': 'error',
+                'error': 'Failed to generate response'
+            }
     
     def _parse_thinking_response(self, response: str) -> Dict[str, str]:
         """

@@ -75,6 +75,17 @@ class TestChatHistoryManager(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['session_id'], first_session)
         self.assertIn("project", results[0]['snippet'].lower())
+
+    def test_attachment_storage(self):
+        """Test storing and retrieving session attachments."""
+        session_id = "attachment_session"
+        self.chat_manager.add_attachment(session_id, "notes.txt", "hello attachment", "text/plain")
+
+        attachments = self.chat_manager.get_session_attachments(session_id)
+
+        self.assertEqual(len(attachments), 1)
+        self.assertEqual(attachments[0]['filename'], "notes.txt")
+        self.assertEqual(attachments[0]['content'], "hello attachment")
     
     def test_database_health(self):
         """Test database health check."""
@@ -156,6 +167,26 @@ class TestQwenModelInterface(unittest.TestCase):
         health_status = self.qwen_interface.check_health()
         
         self.assertTrue(health_status)
+
+    @patch('utils.requests.post')
+    def test_stream_response(self, mock_post):
+        """Test streamed response generation."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.iter_lines.return_value = [
+            b'{"message": {"content": "Hel"}, "done": false}',
+            b'{"message": {"content": "lo"}, "done": false}',
+            b'{"done": true}'
+        ]
+        mock_post.return_value = mock_response
+
+        messages = [{"role": "user", "content": "Hello"}]
+        chunks = list(self.qwen_interface.stream_response(messages))
+
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertEqual(chunks[0]["type"], "chunk")
+        self.assertEqual(chunks[-1]["type"], "done")
+        self.assertEqual(chunks[-1]["answer"], "Hello")
 
 def run_tests():
     """Run all tests."""

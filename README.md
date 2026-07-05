@@ -18,6 +18,8 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's (O
 - **Chat Management**: Search, rename, delete, and export conversations from the sidebar
 - **Markdown Responses**: Assistant replies render basic markdown and code blocks in the browser
 - **Copy Actions**: Copy assistant responses directly from each message
+- **Streaming Replies**: Assistant output now streams into the chat bubble as it is generated
+- **File Attachments**: Upload text-based files and use them as direct chat context
 
 ### Technical Features
 - **Semantic Memory System**: Uses FAISS for efficient similarity search across embeddings

@@ -18,6 +18,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import faiss
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
 
 from utils import ChatHistoryManager, MemorySystem, QwenModelInterface
 
@@ -37,6 +38,10 @@ QWEN_MODEL_NAME = os.getenv('QWEN_MODEL_NAME', 'qwen3:1.7b')
 MAX_CONTEXT_LENGTH = int(os.getenv('MAX_CONTEXT_LENGTH', '4096'))
 TOP_K_MEMORIES = int(os.getenv('TOP_K_MEMORIES', '5'))
 DATABASE_PATH = os.getenv('DATABASE_PATH', 'chat_history.db')
+MAX_ATTACHMENT_BYTES = int(os.getenv('MAX_ATTACHMENT_BYTES', str(256 * 1024)))
+ALLOWED_ATTACHMENT_EXTENSIONS = {
+    '.txt', '.md', '.rst', '.py', '.json', '.csv', '.log', '.yaml', '.yml', '.toml', '.ini', '.xml', '.html', '.htm', '.js', '.ts', '.css'
+}
 
 # Initialize components
 chat_manager = ChatHistoryManager(DATABASE_PATH)
@@ -58,8 +63,9 @@ def index():
 def chat():
     """Handle chat messages and return AI responses."""
     try:
-        data = request.get_json()
+        data = request.get_json(force=True) or {}
         user_message = data.get('message', '').strip()
+        stream_response = bool(data.get('stream', False))
         session_id = session.get('session_id', str(uuid.uuid4()))
         
         if not user_message:
@@ -87,36 +93,110 @@ def chat():
         
         # Get recent conversation context
         recent_messages = chat_manager.get_recent_messages(session_id, limit=10)
+
+        attachments = chat_manager.get_session_attachments(session_id)
         
         # Build context for Qwen
-        context_messages = build_context(relevant_memories, recent_messages, user_message)
-          # Get AI response
+        context_messages = build_context(relevant_memories, recent_messages, user_message, attachments)
+
+        memory_context = [
+            {
+                'content': mem['content'][:100] + '...' if len(mem['content']) > 100 else mem['content'],
+                'timestamp': mem['timestamp'],
+                'similarity': float(mem['similarity'])
+            }
+            for mem in relevant_memories
+        ]
+
+        if stream_response:
+            def generate_stream():
+                assistant_chunks = []
+                ai_msg_id = None
+
+                for chunk in qwen_interface.stream_response(context_messages):
+                    chunk_type = chunk.get('type')
+
+                    if chunk_type == 'chunk':
+                        assistant_chunks.append(chunk.get('content', ''))
+                        yield json.dumps({
+                            'type': 'chunk',
+                            'content': chunk.get('content', '')
+                        }) + '\n'
+                        continue
+
+                    if chunk_type == 'done':
+                        answer = chunk.get('answer', '')
+                        thinking = chunk.get('thinking', '')
+
+                        ai_msg_id = chat_manager.add_message(
+                            session_id=session_id,
+                            role='assistant',
+                            content=answer
+                        )
+
+                        if answer:
+                            try:
+                                ai_embedding = memory_system.get_embedding(answer)
+                                chat_manager.store_embedding(ai_msg_id, ai_embedding)
+                            except Exception as embed_error:
+                                logger.warning(f"Failed to store streamed embedding: {str(embed_error)}")
+
+                        yield json.dumps({
+                            'type': 'done',
+                            'thinking': thinking,
+                            'response': answer,
+                            'session_id': session_id,
+                            'memories_used': memory_context,
+                            'timestamp': datetime.now().isoformat()
+                        }) + '\n'
+                        return
+
+                    if chunk_type == 'error':
+                        yield json.dumps({
+                            'type': 'error',
+                            'error': chunk.get('error', 'Failed to generate response')
+                        }) + '\n'
+                        return
+
+                if assistant_chunks:
+                    answer = ''.join(assistant_chunks)
+                    ai_msg_id = chat_manager.add_message(
+                        session_id=session_id,
+                        role='assistant',
+                        content=answer
+                    )
+                    try:
+                        ai_embedding = memory_system.get_embedding(answer)
+                        chat_manager.store_embedding(ai_msg_id, ai_embedding)
+                    except Exception as embed_error:
+                        logger.warning(f"Failed to store fallback streamed embedding: {str(embed_error)}")
+
+                    yield json.dumps({
+                        'type': 'done',
+                        'thinking': '',
+                        'response': answer,
+                        'session_id': session_id,
+                        'memories_used': memory_context,
+                        'timestamp': datetime.now().isoformat()
+                    }) + '\n'
+
+            return Response(generate_stream(), mimetype='application/x-ndjson')
+
         ai_response_data = qwen_interface.generate_response(context_messages)
-        
+
         if ai_response_data:
             thinking = ai_response_data.get('thinking', '')
             answer = ai_response_data.get('answer', '')
-            
-            # Store AI response (store the answer part)
+
             ai_msg_id = chat_manager.add_message(
                 session_id=session_id,
                 role='assistant',
                 content=answer
             )
-            
-            # Get AI response embedding (use answer for embedding)
+
             ai_embedding = memory_system.get_embedding(answer)
             chat_manager.store_embedding(ai_msg_id, ai_embedding)
-            
-            # Prepare response with memory context for transparency
-            memory_context = [
-                {
-                    'content': mem['content'][:100] + '...' if len(mem['content']) > 100 else mem['content'],                    'timestamp': mem['timestamp'],
-                    'similarity': float(mem['similarity'])
-                }
-                for mem in relevant_memories
-            ]
-            
+
             return jsonify({
                 'thinking': thinking,
                 'response': answer,
@@ -188,6 +268,102 @@ def delete_session(session_id):
         logger.error(f"Error deleting session: {str(e)}")
         return jsonify({'error': 'Failed to delete session'}), 500
 
+@app.route('/attachments', methods=['GET'])
+def get_attachments():
+    """Get attachments for the current or requested session."""
+    try:
+        session_id = request.args.get('session_id') or session.get('session_id')
+        if not session_id:
+            return jsonify({'attachments': []})
+
+        attachments = chat_manager.get_session_attachments(session_id)
+        return jsonify({
+            'session_id': session_id,
+            'attachments': [
+                {
+                    'id': attachment['id'],
+                    'filename': attachment['filename'],
+                    'content_type': attachment['content_type'],
+                    'size': len(attachment['content']),
+                    'created_at': attachment['created_at']
+                }
+                for attachment in attachments
+            ]
+        })
+    except Exception as e:
+        logger.error(f"Error getting attachments: {str(e)}")
+        return jsonify({'error': 'Failed to get attachments'}), 500
+
+@app.route('/attachments/upload', methods=['POST'])
+def upload_attachments():
+    """Upload one or more attachments for the active session."""
+    try:
+        session_id = session.get('session_id', str(uuid.uuid4()))
+        files = request.files.getlist('files')
+
+        if not files:
+            return jsonify({'error': 'No files selected'}), 400
+
+        uploaded = []
+        rejected = []
+
+        for uploaded_file in files:
+            if not uploaded_file or not uploaded_file.filename:
+                continue
+
+            filename = secure_filename(uploaded_file.filename)
+            extension = os.path.splitext(filename)[1].lower()
+
+            if extension not in ALLOWED_ATTACHMENT_EXTENSIONS:
+                rejected.append({
+                    'filename': filename,
+                    'reason': 'Unsupported file type'
+                })
+                continue
+
+            raw_bytes = uploaded_file.read(MAX_ATTACHMENT_BYTES + 1)
+            if len(raw_bytes) > MAX_ATTACHMENT_BYTES:
+                rejected.append({
+                    'filename': filename,
+                    'reason': 'File is too large'
+                })
+                continue
+
+            try:
+                file_text = raw_bytes.decode('utf-8-sig')
+            except UnicodeDecodeError:
+                rejected.append({
+                    'filename': filename,
+                    'reason': 'File must be UTF-8 text'
+                })
+                continue
+
+            attachment_id = chat_manager.add_attachment(
+                session_id=session_id,
+                filename=filename,
+                content=file_text,
+                content_type=uploaded_file.mimetype
+            )
+
+            uploaded.append({
+                'id': attachment_id,
+                'filename': filename,
+                'content_type': uploaded_file.mimetype,
+                'size': len(file_text)
+            })
+
+        if not uploaded and rejected:
+            return jsonify({'error': 'No files could be uploaded', 'rejected': rejected}), 400
+
+        return jsonify({
+            'session_id': session_id,
+            'uploaded': uploaded,
+            'rejected': rejected
+        })
+    except Exception as e:
+        logger.error(f"Error uploading attachments: {str(e)}")
+        return jsonify({'error': 'Failed to upload attachments'}), 500
+
 @app.route('/new_session', methods=['POST'])
 def new_session():
     """Start a new chat session."""
@@ -248,7 +424,7 @@ def export_session(session_id):
         logger.error(f"Error exporting session: {str(e)}")
         return jsonify({'error': 'Failed to export session'}), 500
 
-def build_context(relevant_memories: List[Dict], recent_messages: List[Dict], user_message: str) -> List[Dict]:
+def build_context(relevant_memories: List[Dict], recent_messages: List[Dict], user_message: str, attachments: Optional[List[Dict]] = None) -> List[Dict]:
     """
     Build context for Qwen model including relevant memories and recent conversation.
     
@@ -286,6 +462,19 @@ def build_context(relevant_memories: List[Dict], recent_messages: List[Dict], us
             memory_context += f"[{memory['timestamp']}] {memory['role']}: {memory['content']}\n"
         
         context_messages.append({"role": "system", "content": memory_context})
+
+    # Add session attachments if available
+    if attachments:
+        attachment_context = "Here are attached files for this conversation. Use them as direct context when answering:\n\n"
+        for attachment in attachments[:5]:
+            file_content = (attachment.get('content') or '').strip()
+            if not file_content:
+                continue
+
+            attachment_context += f"### {attachment.get('filename', 'attachment')}\n"
+            attachment_context += f"```text\n{file_content[:8000]}\n```\n\n"
+
+        context_messages.append({"role": "system", "content": attachment_context})
     
     # Add recent conversation context
     for msg in recent_messages[-8:]:  # Last 8 messages for immediate context
