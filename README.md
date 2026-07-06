@@ -1,6 +1,6 @@
 # Qwen Chat App with Human-like Memory
 
-A sophisticated ChatGPT-like interface built with Flask that integrates LLM's (Open AI, Anthropic, Or any other Compatible API/ Ollama based) with human-like memory capabilities using semantic search and embeddings.
+A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( Ollama based) with human-like memory capabilities using semantic search and embeddings.
 
 ![Qwen Chat Interface](https://img.shields.io/badge/Interface-Modern%20Web%20UI-blue)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-green)
