@@ -1,11 +1,11 @@
-# Qwen Chat App with Human-like Memory
+# Local AI Chat App with Human-like Memory
 
 A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( Ollama based) with human-like memory capabilities using semantic search and embeddings.
 
-![Qwen Chat Interface](https://img.shields.io/badge/Interface-Modern%20Web%20UI-blue)
+![Local AI Chat Interface](https://img.shields.io/badge/Interface-Modern%20Web%20UI-blue)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-green)
 ![Flask](https://img.shields.io/badge/Flask-3.0%2B-red)
-![AI Model](https://img.shields.io/badge/AI-Qwen%203.1%207B-orange)
+![AI Model](https://img.shields.io/badge/AI-Local%20LLM-orange)
 
 ## 🌟 Features
 
@@ -24,7 +24,7 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( 
 ### Technical Features
 - **Semantic Memory System**: Uses FAISS for efficient similarity search across embeddings
 - **Persistent Storage**: SQLite database for chat history and session management
-- **Ollama Integration**: Seamless integration with locally running Qwen models
+- **Ollama Integration**: Seamless integration with locally running AI models
 - **Thread-Safe Operations**: Concurrent user support with proper locking mechanisms
 - **Health Monitoring**: Built-in health checks for all system components
 
@@ -57,7 +57,7 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( 
 1. **Clone or download the project**:
    ```bash
    git clone <repository-url>
-   cd qwen-chat-memory
+   cd local-ai-chat-memory
    ```
 
 2. **Create and activate virtual environment**:
@@ -76,12 +76,12 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( 
    pip install -r requirements.txt
    ```
 
-4. **Set up Ollama with Qwen** (if not already done):
+4. **Set up Ollama with local model** (if not already done):
    ```bash
    # Install Ollama first (visit https://ollama.ai)
    
-   # Pull Qwen model
-   ollama pull (model name)
+   # Pull a local model (e.g., llama3 or mistral)
+   ollama pull <model-name>
    
    # Verify model is running
    ollama list
@@ -92,7 +92,7 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( 
    ```env
    SECRET_KEY=your-secret-key-here
    OLLAMA_BASE_URL=http://localhost:11434
-   OLLAMA_MODEL_NAME=Model_name
+   LOCAL_MODEL_NAME=your-model-name
    MAX_CONTEXT_LENGTH=4096
    TOP_K_MEMORIES=5
    DATABASE_PATH=chat_history.db
@@ -151,7 +151,7 @@ GET /health
 ### Model Settings
 - **Context Length**: Adjust `MAX_CONTEXT_LENGTH` for longer conversations
 - **Memory Retrieval**: Modify `TOP_K_MEMORIES` to change how many past conversations to consider
-- **Model Selection**: Change `QWEN_MODEL_NAME` to use different Qwen variants
+- **Model Selection**: Change `LOCAL_MODEL_NAME` to use different model variants
 
 ### Database Configuration
 - **SQLite Path**: Modify `DATABASE_PATH` to change database location
@@ -182,7 +182,7 @@ GET /health
 #### Ollama Connection Failed
 - Ensure Ollama is running: `ollama list`
 - Check the correct port (default: 11434)
-- Verify Qwen model is downloaded: `ollama pull model_name`
+- Verify local model is downloaded: `ollama pull model_name`
 
 #### Memory Not Working
 - Check if sentence-transformers is properly installed
@@ -210,7 +210,7 @@ python app.py
 
 ### Project Structure
 ```
-qwen-chat-memory/
+local-ai-chat-memory/
 ├── app.py              # Main Flask application
 ├── utils.py            # Core utility classes
 ├── requirements.txt    # Python dependencies
@@ -234,7 +234,7 @@ qwen-chat-memory/
 - Implements semantic search using FAISS
 - Manages similarity scoring and relevance filtering
 
-#### QwenModelInterface
+#### LocalModelInterface
 - Manages communication with Ollama API
 - Handles request/response formatting
 - Implements error handling and retries
@@ -326,7 +326,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
-- **Qwen Team** for the excellent language model
+- **Ollama and LLM Creators** for the excellent language models
 - **Ollama** for the easy-to-use model serving platform
 - **Sentence Transformers** for semantic similarity capabilities
 - **FAISS** for efficient similarity search
@@ -334,7 +334,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📚 Additional Resources
 
-- [Qwen Documentation](https://github.com/QwenLM/Qwen)/ Please refer to the model installed documents if provided 
+- [Ollama Models Library](https://ollama.com/library) for finding local models to run
 - [Ollama Documentation](https://ollama.ai/docs)
 - [Sentence Transformers Documentation](https://sbert.net/)
 - [FAISS Documentation](https://faiss.ai/)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for Qwen Chat App components
+Test script for Local AI Chat App components
 """
 
 import os
@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 # Add the project directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import ChatHistoryManager, MemorySystem, QwenModelInterface
+from utils import ChatHistoryManager, MemorySystem, LocalModelInterface
 
 class TestChatHistoryManager(unittest.TestCase):
     def setUp(self):
@@ -120,9 +120,9 @@ class TestMemorySystem(unittest.TestCase):
         self.assertIsNotNone(embedding)
         mock_model.encode.assert_called_once_with("test text", convert_to_numpy=True)
 
-class TestQwenModelInterface(unittest.TestCase):
+class TestLocalModelInterface(unittest.TestCase):
     def setUp(self):
-        self.qwen_interface = QwenModelInterface()
+        self.model_interface = LocalModelInterface()
     
     @patch('utils.requests.post')
     def test_generate_response_success(self, mock_post):
@@ -135,7 +135,7 @@ class TestQwenModelInterface(unittest.TestCase):
         mock_post.return_value = mock_response
         
         messages = [{"role": "user", "content": "Hello"}]
-        response = self.qwen_interface.generate_response(messages)
+        response = self.model_interface.generate_response(messages)
         
         self.assertIsInstance(response, dict)
         self.assertEqual(response["answer"], "Test response")
@@ -150,7 +150,7 @@ class TestQwenModelInterface(unittest.TestCase):
         mock_post.return_value = mock_response
         
         messages = [{"role": "user", "content": "Hello"}]
-        response = self.qwen_interface.generate_response(messages)
+        response = self.model_interface.generate_response(messages)
         
         self.assertIsNone(response)
     
@@ -160,11 +160,11 @@ class TestQwenModelInterface(unittest.TestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            'models': [{'name': 'qwen:7b'}]
+            'models': [{'name': 'your-model-name'}]
         }
         mock_get.return_value = mock_response
         
-        health_status = self.qwen_interface.check_health()
+        health_status = self.model_interface.check_health()
         
         self.assertTrue(health_status)
 
@@ -181,7 +181,7 @@ class TestQwenModelInterface(unittest.TestCase):
         mock_post.return_value = mock_response
 
         messages = [{"role": "user", "content": "Hello"}]
-        chunks = list(self.qwen_interface.stream_response(messages))
+        chunks = list(self.model_interface.stream_response(messages))
 
         self.assertGreaterEqual(len(chunks), 2)
         self.assertEqual(chunks[0]["type"], "chunk")
@@ -190,7 +190,7 @@ class TestQwenModelInterface(unittest.TestCase):
 
 def run_tests():
     """Run all tests."""
-    print("Running Qwen Chat App Tests...")
+    print("Running Local AI Chat App Tests...")
     print("=" * 50)
     
     # Create test suite
@@ -200,7 +200,7 @@ def run_tests():
     # Add test cases
     suite.addTests(loader.loadTestsFromTestCase(TestChatHistoryManager))
     suite.addTests(loader.loadTestsFromTestCase(TestMemorySystem))
-    suite.addTests(loader.loadTestsFromTestCase(TestQwenModelInterface))
+    suite.addTests(loader.loadTestsFromTestCase(TestLocalModelInterface))
     
     # Run tests
     runner = unittest.TextTestRunner(verbosity=2)

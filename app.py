@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Qwen Chat App with Human-like Memory
+Local AI Chat App with Human-like Memory
 A Flask application providing ChatGPT-like interface with semantic memory capabilities.
 """
 
@@ -20,7 +20,7 @@ import faiss
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 
-from utils import ChatHistoryManager, MemorySystem, QwenModelInterface
+from utils import ChatHistoryManager, MemorySystem, LocalModelInterface
 
 # Load environment variables
 load_dotenv()
@@ -34,7 +34,13 @@ app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
 
 # Configuration
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-QWEN_MODEL_NAME = os.getenv('QWEN_MODEL_NAME', 'qwen3:1.7b')
+LOCAL_MODEL_NAME = os.getenv('LOCAL_MODEL_NAME')
+if not LOCAL_MODEL_NAME:
+    LOCAL_MODEL_NAME = os.getenv('QWEN_MODEL_NAME')
+    if LOCAL_MODEL_NAME:
+        logger.warning("QWEN_MODEL_NAME environment variable is deprecated. Please use LOCAL_MODEL_NAME instead.")
+    else:
+        LOCAL_MODEL_NAME = 'your-model-name'
 MAX_CONTEXT_LENGTH = int(os.getenv('MAX_CONTEXT_LENGTH', '4096'))
 TOP_K_MEMORIES = int(os.getenv('TOP_K_MEMORIES', '5'))
 DATABASE_PATH = os.getenv('DATABASE_PATH', 'chat_history.db')
@@ -46,7 +52,7 @@ ALLOWED_ATTACHMENT_EXTENSIONS = {
 # Initialize components
 chat_manager = ChatHistoryManager(DATABASE_PATH)
 memory_system = MemorySystem()
-qwen_interface = QwenModelInterface(OLLAMA_BASE_URL, QWEN_MODEL_NAME)
+model_interface = LocalModelInterface(OLLAMA_BASE_URL, LOCAL_MODEL_NAME)
 
 # Set up the memory system reference to chat manager
 memory_system.chat_manager = chat_manager
@@ -96,7 +102,7 @@ def chat():
 
         attachments = chat_manager.get_session_attachments(session_id)
         
-        # Build context for Qwen
+        # Build context for local model
         context_messages = build_context(relevant_memories, recent_messages, user_message, attachments)
 
         memory_context = [
@@ -113,7 +119,7 @@ def chat():
                 assistant_chunks = []
                 ai_msg_id = None
 
-                for chunk in qwen_interface.stream_response(context_messages):
+                for chunk in model_interface.stream_response(context_messages):
                     chunk_type = chunk.get('type')
 
                     if chunk_type == 'chunk':
@@ -182,7 +188,7 @@ def chat():
 
             return Response(generate_stream(), mimetype='application/x-ndjson')
 
-        ai_response_data = qwen_interface.generate_response(context_messages)
+        ai_response_data = model_interface.generate_response(context_messages)
 
         if ai_response_data:
             thinking = ai_response_data.get('thinking', '')
@@ -426,7 +432,7 @@ def export_session(session_id):
 
 def build_context(relevant_memories: List[Dict], recent_messages: List[Dict], user_message: str, attachments: Optional[List[Dict]] = None) -> List[Dict]:
     """
-    Build context for Qwen model including relevant memories and recent conversation.
+    Build context for local model including relevant memories and recent conversation.
     
     Args:
         relevant_memories: List of relevant past messages
@@ -438,7 +444,7 @@ def build_context(relevant_memories: List[Dict], recent_messages: List[Dict], us
     """
     context_messages = []
       # Add system prompt
-    system_prompt = """You are Qwen, a helpful AI assistant with access to conversation history. 
+    system_prompt = """You are a helpful AI assistant with access to conversation history. 
     You can remember and reference past conversations to provide more personalized and contextual responses. 
     
     IMPORTANT: Before giving your final answer, please think through your response step by step. 
@@ -493,7 +499,7 @@ def health_check():
     """Health check endpoint."""
     try:
         # Check if Ollama is accessible
-        ollama_status = qwen_interface.check_health()
+        ollama_status = model_interface.check_health()
         
         # Check database connection
         db_status = chat_manager.check_health()
@@ -520,8 +526,8 @@ if __name__ == '__main__':
         logger.info("Application initialized successfully")
         
         # Check if Ollama is running
-        if not qwen_interface.check_health():
-            logger.warning("Ollama is not accessible. Please ensure it's running with Qwen model loaded.")
+        if not model_interface.check_health():
+            logger.warning("Ollama is not accessible. Please ensure it's running with the configured model loaded.")
         
         app.run(debug=True, host='0.0.0.0', port=5000)
     except Exception as e:

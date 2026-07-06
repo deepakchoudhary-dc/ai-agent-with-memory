@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup script for Qwen Chat App with Human-like Memory
+Setup script for Local AI Chat App with Human-like Memory
 """
 
 import os
@@ -13,7 +13,7 @@ import json
 def print_banner():
     """Print welcome banner."""
     print("=" * 60)
-    print("🚀 Qwen Chat App with Human-like Memory Setup")
+    print("🚀 Local AI Chat App with Human-like Memory Setup")
     print("=" * 60)
     print()
 
@@ -94,13 +94,12 @@ def check_ollama_installation():
                 print("✅ Ollama is running")
                 print(f"📝 Available models: {', '.join(models) if models else 'None'}")
                 
-                # Check for Qwen model
-                qwen_models = [m for m in models if 'qwen' in m.lower()]
-                if qwen_models:
-                    print(f"✅ Qwen model found: {', '.join(qwen_models)}")
+                # Check for any model
+                if models:
+                    print(f"✅ Available models found: {', '.join(models)}")
                     return True
                 else:
-                    print("⚠️  No Qwen model found")
+                    print("⚠️  No models found in Ollama")
                     return False
             else:
                 print("❌ Ollama is not responding properly")
@@ -111,7 +110,7 @@ def check_ollama_installation():
         print("\n💡 Please ensure Ollama is installed and running:")
         print("   1. Visit https://ollama.ai to download Ollama")
         print("   2. Install and start Ollama")
-        print("   3. Run: ollama pull qwen:7b")
+        print("   3. Run: ollama pull <model-name>")
         return False
 
 def create_env_file():
@@ -175,9 +174,9 @@ def print_next_steps():
     print("=" * 60)
     print()
     print("📋 Next steps:")
-    print("1. Ensure Ollama is running with Qwen model:")
-    print("   ollama pull qwen:7b")
-    print("   ollama run qwen:7b")
+    print("1. Ensure Ollama is running with a local model:")
+    print("   ollama pull <model-name>")
+    print("   ollama run <model-name>")
     print()
     print("2. Activate the virtual environment:")
     print(f"   {get_activation_command()}")

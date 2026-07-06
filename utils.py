@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Utility classes for Qwen Chat App with Human-like Memory
+Utility classes for Local AI Chat App with Human-like Memory
 """
 
 import sqlite3
@@ -521,10 +521,10 @@ class MemorySystem:
             logger.error(f"Memory system health check failed: {str(e)}")
             return False
 
-class QwenModelInterface:
-    """Interface for communicating with Qwen model via Ollama."""
+class LocalModelInterface:
+    """Interface for communicating with local model via Ollama."""
     
-    def __init__(self, base_url: str = 'http://localhost:11434', model_name: str = 'qwen3:1.7b'):
+    def __init__(self, base_url: str = 'http://localhost:11434', model_name: str = 'your-model-name'):
         self.base_url = base_url.rstrip('/')
         self.model_name = model_name
         self.api_url = f"{self.base_url}/api/chat"
@@ -532,7 +532,7 @@ class QwenModelInterface:
     def generate_response(self, messages: List[Dict[str, str]], 
                          max_tokens: int = 1000, temperature: float = 0.7) -> Optional[Dict[str, str]]:
         """
-        Generate response from Qwen model with thinking process.
+        Generate response from local model with thinking process.
         
         Args:
             messages: List of message dictionaries with 'role' and 'content'
@@ -589,7 +589,7 @@ class QwenModelInterface:
 
     def stream_response(self, messages: List[Dict[str, str]], 
                         max_tokens: int = 1000, temperature: float = 0.7) -> Iterator[Dict[str, str]]:
-        """Stream response chunks from Qwen via Ollama."""
+        """Stream response chunks from local model via Ollama."""
         thinking_messages = messages + [{
             "role": "user",
             "content": "Before answering, please think through this step by step. Start your response with <think> and end the thinking part with </think>, then provide your actual answer."
@@ -717,7 +717,7 @@ class QwenModelInterface:
                 
                 # Check if our model is available
                 if any(self.model_name in name for name in model_names):
-                    logger.info(f"Qwen model {self.model_name} is available")
+                    logger.info(f"Local model {self.model_name} is available")
                     return True
                 else:
                     logger.warning(f"Model {self.model_name} not found. Available models: {model_names}")
