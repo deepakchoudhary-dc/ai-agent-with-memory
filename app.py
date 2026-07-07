@@ -9,8 +9,9 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 import logging
+import threading
 
 from flask import Flask, render_template, request, jsonify, session, Response
 import requests
@@ -72,12 +73,16 @@ def chat():
         data = request.get_json(force=True) or {}
         user_message = data.get('message', '').strip()
         stream_response = bool(data.get('stream', False))
+        active_model_name = data.get('model', '').strip() or LOCAL_MODEL_NAME
         session_id = session.get('session_id', str(uuid.uuid4()))
         
         if not user_message:
             return jsonify({'error': 'Empty message'}), 400
         
-        logger.info(f"Processing message for session {session_id}: {user_message[:50]}...")
+        logger.info(f"Processing message for session {session_id} using model {active_model_name}: {user_message[:50]}...")
+        
+        # Temporarily override the interface's model name for this request thread
+        model_interface.model_name = active_model_name
         
         # Store user message
         user_msg_id = chat_manager.add_message(
@@ -147,6 +152,13 @@ def chat():
                             except Exception as embed_error:
                                 logger.warning(f"Failed to store streamed embedding: {str(embed_error)}")
 
+                            # Asynchronously extract new facts about the user in the background
+                            threading.Thread(
+                                target=extract_and_save_facts,
+                                args=(user_message, answer, active_model_name),
+                                daemon=True
+                            ).start()
+
                         yield json.dumps({
                             'type': 'done',
                             'thinking': thinking,
@@ -176,6 +188,13 @@ def chat():
                         chat_manager.store_embedding(ai_msg_id, ai_embedding)
                     except Exception as embed_error:
                         logger.warning(f"Failed to store fallback streamed embedding: {str(embed_error)}")
+                    
+                    if answer:
+                        threading.Thread(
+                            target=extract_and_save_facts,
+                            args=(user_message, answer, active_model_name),
+                            daemon=True
+                        ).start()
 
                     yield json.dumps({
                         'type': 'done',
@@ -202,6 +221,14 @@ def chat():
 
             ai_embedding = memory_system.get_embedding(answer)
             chat_manager.store_embedding(ai_msg_id, ai_embedding)
+
+            if answer:
+                # Asynchronously extract new facts about the user in the background
+                threading.Thread(
+                    target=extract_and_save_facts,
+                    args=(user_message, answer, active_model_name),
+                    daemon=True
+                ).start()
 
             return jsonify({
                 'thinking': thinking,
@@ -430,6 +457,81 @@ def export_session(session_id):
         logger.error(f"Error exporting session: {str(e)}")
         return jsonify({'error': 'Failed to export session'}), 500
 
+def extract_and_save_facts(user_message: str, assistant_response: str, active_model_name: str):
+    """Background task to extract and save new permanent user facts using the LLM."""
+    try:
+        # Construct extraction message
+        prompt_content = f"""Analyze the following conversational exchange between a user and their assistant. Identify any permanent personal facts, preferences, or settings explicitly stated by the user (for example: user's name, user's profession, coding language they like, favorite foods, or general user interests).
+
+Exchange:
+User: "{user_message}"
+Assistant: "{assistant_response}"
+
+Instructions:
+1. Extract ONLY concrete, permanent facts about the user.
+2. DO NOT extract temporal or transient statements (e.g. "User is asking for help", "User is having an issue").
+3. DO NOT extract facts about the assistant.
+4. Output each extracted fact as a short, clean, declarative sentence (e.g., "User's name is Deepak", "User prefers coding in Python").
+5. Do NOT include markdown bullet points, numbers, or introductory text. Just print the sentences, one per line.
+6. If no new permanent facts about the user are disclosed in the user's message, return absolutely nothing.
+
+Extracted Facts:"""
+
+        extraction_messages = [
+            {"role": "system", "content": "You are a precise information extraction engine that outputs user facts in plain text, one per line."},
+            {"role": "user", "content": prompt_content}
+        ]
+
+        # Use the local model interface, overriding the model name if user has chosen a different active model
+        temp_interface = LocalModelInterface(OLLAMA_BASE_URL, active_model_name)
+        result = temp_interface.generate_response(extraction_messages, max_tokens=300, temperature=0.1)
+        
+        if result and result.get('answer'):
+            facts_text = result.get('answer', '').strip()
+            # Split by line and filter empty
+            for line in facts_text.split('\n'):
+                cleaned_fact = line.strip().strip('-*•').strip()
+                if cleaned_fact and len(cleaned_fact) > 5 and not cleaned_fact.lower().startswith('here are'):
+                    chat_manager.add_fact(cleaned_fact)
+    except Exception as e:
+        logger.error(f"Error in background fact extraction: {str(e)}")
+
+@app.route('/facts', methods=['GET'])
+def get_facts():
+    """Get all extracted user facts."""
+    try:
+        facts = chat_manager.get_all_facts()
+        return jsonify({'facts': facts})
+    except Exception as e:
+        logger.error(f"Error getting facts: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/facts/<fact_id>', methods=['DELETE'])
+def delete_fact(fact_id):
+    """Delete a specific user fact."""
+    try:
+        deleted = chat_manager.delete_fact(fact_id)
+        if deleted:
+            return jsonify({'success': True})
+        return jsonify({'error': 'Fact not found'}), 404
+    except Exception as e:
+        logger.error(f"Error deleting fact: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/models', methods=['GET'])
+def get_models():
+    """Fetch all available local models from Ollama."""
+    try:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        if response.status_code == 200:
+            models = response.json().get('models', [])
+            model_names = [model.get('name', '') for model in models]
+            return jsonify({'models': model_names, 'default': LOCAL_MODEL_NAME})
+        return jsonify({'models': [LOCAL_MODEL_NAME], 'default': LOCAL_MODEL_NAME, 'error': 'Ollama returned error status'}), response.status_code
+    except Exception as e:
+        logger.error(f"Failed to fetch models from Ollama: {str(e)}")
+        return jsonify({'models': [LOCAL_MODEL_NAME], 'default': LOCAL_MODEL_NAME, 'warning': 'Could not connect to Ollama'})
+
 def build_context(relevant_memories: List[Dict], recent_messages: List[Dict], user_message: str, attachments: Optional[List[Dict]] = None) -> List[Dict]:
     """
     Build context for local model including relevant memories and recent conversation.
@@ -460,6 +562,14 @@ def build_context(relevant_memories: List[Dict], recent_messages: List[Dict], us
     When relevant, you may reference previous discussions, but keep your responses natural and conversational."""
     
     context_messages.append({"role": "system", "content": system_prompt})
+    
+    # Add user profile facts if available
+    facts = chat_manager.get_all_facts()
+    if facts:
+        profile_context = "Here is what we know about the user's background, preferences, and profile:\n\n"
+        for fact_item in facts:
+            profile_context += f"- {fact_item['fact']}\n"
+        context_messages.append({"role": "system", "content": profile_context})
     
     # Add relevant memories if available
     if relevant_memories:

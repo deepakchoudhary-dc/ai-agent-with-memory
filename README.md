@@ -20,6 +20,8 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( 
 - **Copy Actions**: Copy assistant responses directly from each message
 - **Streaming Replies**: Assistant output now streams into the chat bubble as it is generated
 - **File Attachments**: Upload text-based files and use them as direct chat context
+- **🧠 Persistent Memory Core**: Automatically extracts and logs permanent facts/preferences about the user in a persistent profile to guide persona alignment
+- **🔄 Dynamic Model Switcher**: Change your active Ollama model instantly from a dropdown list in the interface header
 
 ### Technical Features
 - **Semantic Memory System**: Uses FAISS for efficient similarity search across embeddings
@@ -144,6 +146,21 @@ POST /new_session
 #### Health Check
 ```http
 GET /health
+```
+
+#### Get User Profile Facts
+```http
+GET /facts
+```
+
+#### Delete User Fact
+```http
+DELETE /facts/<fact_id>
+```
+
+#### Get Available Ollama Models
+```http
+GET /models
 ```
 
 ## 🔧 Configuration

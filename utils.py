@@ -63,6 +63,15 @@ class ChatHistoryManager:
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+
+            # Create user_facts table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_facts (
+                    id TEXT PRIMARY KEY,
+                    fact TEXT UNIQUE NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
             
             # Create indexes for better performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_session_id ON messages(session_id)')
@@ -413,6 +422,65 @@ class ChatHistoryManager:
             logger.error(f"Database health check failed: {str(e)}")
             return False
 
+    def add_fact(self, fact: str) -> Optional[str]:
+        """Add a new fact, ignoring duplicates."""
+        cleaned_fact = fact.strip()
+        if not cleaned_fact:
+            return None
+        fact_id = str(uuid.uuid4())
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO user_facts (id, fact)
+                    VALUES (?, ?)
+                ''', (fact_id, cleaned_fact))
+                conn.commit()
+                conn.close()
+                logger.info(f"Stored user fact: {cleaned_fact}")
+                return fact_id
+            except sqlite3.IntegrityError:
+                # Fact already exists, ignore
+                logger.debug(f"Fact already exists: {cleaned_fact}")
+                return None
+            except Exception as e:
+                logger.error(f"Failed to add fact: {str(e)}")
+                return None
+
+    def get_all_facts(self) -> List[Dict[str, Any]]:
+        """Retrieve all stored user facts."""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, fact, created_at
+                    FROM user_facts
+                    ORDER BY created_at DESC
+                ''')
+                rows = cursor.fetchall()
+                conn.close()
+                return [{'id': r[0], 'fact': r[1], 'created_at': r[2]} for r in rows]
+            except Exception as e:
+                logger.error(f"Failed to get facts: {str(e)}")
+                return []
+
+    def delete_fact(self, fact_id: str) -> bool:
+        """Delete a fact by ID."""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM user_facts WHERE id = ?', (fact_id,))
+                deleted = cursor.rowcount > 0
+                conn.commit()
+                conn.close()
+                return deleted
+            except Exception as e:
+                logger.error(f"Failed to delete fact: {str(e)}")
+                return False
+
 class MemorySystem:
     """Manages semantic memory using sentence transformers and FAISS."""
     
@@ -440,6 +508,8 @@ class MemorySystem:
         
         try:
             embedding = self.model.encode(text, convert_to_numpy=True)
+            if not isinstance(embedding, np.ndarray):
+                embedding = np.array(embedding)
             return embedding.astype(np.float32)
         except Exception as e:
             logger.error(f"Failed to get embedding: {str(e)}")

@@ -91,6 +91,28 @@ class TestChatHistoryManager(unittest.TestCase):
         """Test database health check."""
         self.assertTrue(self.chat_manager.check_health())
 
+    def test_user_facts(self):
+        """Test adding, getting, and deleting user profile facts."""
+        fact_id = self.chat_manager.add_fact("User likes Python")
+        self.assertIsNotNone(fact_id)
+        
+        # Test duplicate addition (should be ignored / return None)
+        duplicate_id = self.chat_manager.add_fact("User likes Python")
+        self.assertIsNone(duplicate_id)
+        
+        # Test getting all facts
+        facts = self.chat_manager.get_all_facts()
+        self.assertEqual(len(facts), 1)
+        self.assertEqual(facts[0]['fact'], "User likes Python")
+        
+        # Test deleting fact
+        deleted = self.chat_manager.delete_fact(fact_id)
+        self.assertTrue(deleted)
+        
+        # Test getting all facts after delete
+        facts = self.chat_manager.get_all_facts()
+        self.assertEqual(len(facts), 0)
+
 class TestMemorySystem(unittest.TestCase):
     def setUp(self):
         self.memory_system = MemorySystem()

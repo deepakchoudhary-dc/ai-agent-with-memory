@@ -1146,6 +1146,16 @@
                 </div>
             </div>
 
+            <!-- Memory Core Profile Section -->
+            <div class="sidebar-section" style="display: flex; flex-direction: column; max-height: 250px; overflow: hidden; border-bottom: 1px solid var(--panel-border); padding-bottom: 14px;">
+                <div class="section-header">
+                    <span class="section-label">🧠 Memory Core</span>
+                </div>
+                <div id="memory-core-list" class="attachment-list" style="margin-bottom: 0; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Rendered by JS -->
+                </div>
+            </div>
+
             <!-- Sessions History List -->
             <div class="sidebar-section" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; border-bottom: 1px solid var(--panel-border);">
                 <div class="section-header">
@@ -1197,6 +1207,12 @@
                     <p class="chat-header-subtitle">ID: <span id="session-id-label">...</span></p>
                 </div>
                 <div class="chat-header-actions">
+                    <div class="model-select-group" style="display: flex; align-items: center; gap: 8px; margin-right: 8px;">
+                        <span style="font-size: 10px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Model:</span>
+                        <select id="model-selector" class="search-input" style="padding: 6px 28px 6px 12px; height: 34px; min-height: auto; width: 180px; font-size: 12px; margin: 0; background: var(--bg-secondary); border: 1px solid var(--panel-border); border-radius: 10px; color: var(--text-primary); cursor: pointer; font-weight: 600; outline: none; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E'); background-repeat: no-repeat; background-position: right%2010px%20top%2050%25; background-size: 10px%20auto;">
+                            <option value="">Loading models...</option>
+                        </select>
+                    </div>
                     <a id="export-link" class="btn btn-secondary" href="#" title="Export current chat history as Markdown document">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                         Export MD
@@ -1276,8 +1292,11 @@
                 this.attachmentInput = document.getElementById('attachment-input');
                 this.themeToggle = document.getElementById('theme-toggle');
                 this.themeIcon = document.getElementById('theme-icon');
+                this.modelSelector = document.getElementById('model-selector');
+                this.memoryCoreList = document.getElementById('memory-core-list');
 
                 this.setupEventListeners();
+                this.loadAvailableModels();
                 this.initApp();
             }
 
@@ -1328,6 +1347,7 @@
                 await this.loadSessions();
                 await this.loadHistory(this.currentSessionId);
                 await this.loadAttachments();
+                await this.loadFacts();
                 this.updateExportLink();
             }
 
@@ -1765,6 +1785,7 @@
                 if (!messageText) return;
                 
                 // Clear welcome dashboard if present
+                const activeModel = this.modelSelector.value;
                 if (this.messagesEl.querySelector('.welcome-dashboard')) {
                     this.messagesEl.innerHTML = '';
                 }
@@ -1786,7 +1807,7 @@
                     const response = await fetch('/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: messageText, stream: true })
+                        body: JSON.stringify({ message: messageText, stream: true, model: activeModel })
                     });
                     
                     if (!response.ok) {
@@ -1938,9 +1959,10 @@
                     this.updateExportLink();
                 }
                 
-                // Reload list of sessions and attachments
+                // Reload list of sessions, attachments, and facts
                 await this.loadSessions();
                 await this.loadAttachments();
+                await this.loadFacts();
             }
 
             // Present final AI reply with copy actions and matching memory timeline
@@ -2180,6 +2202,90 @@
                 const sizes = ['Bytes', 'KB', 'MB', 'GB'];
                 const i = Math.floor(Math.log(bytes) / Math.log(k));
                 return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+            }
+
+            // Load available Ollama models
+            async loadAvailableModels() {
+                try {
+                    const response = await fetch('/models');
+                    const data = await response.json();
+                    this.modelSelector.innerHTML = '';
+                    
+                    if (data.models && data.models.length > 0) {
+                        data.models.forEach(modelName => {
+                            const option = document.createElement('option');
+                            option.value = modelName;
+                            option.textContent = modelName;
+                            if (modelName === data.default) {
+                                option.selected = true;
+                            }
+                            this.modelSelector.appendChild(option);
+                        });
+                    } else {
+                        const fallbackModel = data.default || 'your-model-name';
+                        this.modelSelector.innerHTML = `<option value="${fallbackModel}">${fallbackModel}</option>`;
+                    }
+                } catch (error) {
+                    console.error('Failed to load Ollama models:', error);
+                    this.modelSelector.innerHTML = `<option value="your-model-name">your-model-name</option>`;
+                }
+            }
+
+            // Load all extracted profile facts
+            async loadFacts() {
+                try {
+                    const response = await fetch('/facts');
+                    const data = await response.json();
+                    this.memoryCoreList.innerHTML = '';
+                    
+                    const facts = Array.isArray(data.facts) ? data.facts : [];
+                    if (facts.length === 0) {
+                        this.memoryCoreList.innerHTML = `<div class="empty-state" style="padding: 6px 0; font-size: 11px; text-align: center;">No extracted user facts yet. Start chatting!</div>`;
+                        return;
+                    }
+                    
+                    facts.forEach(item => {
+                        const factDiv = document.createElement('div');
+                        factDiv.className = 'attachment-item';
+                        factDiv.style.display = 'flex';
+                        factDiv.style.alignItems = 'center';
+                        factDiv.style.justifyContent = 'space-between';
+                        factDiv.style.padding = '8px 10px';
+                        factDiv.style.gap = '8px';
+                        factDiv.style.background = 'rgba(99, 102, 241, 0.05)';
+                        factDiv.style.border = '1px solid rgba(99, 102, 241, 0.1)';
+                        factDiv.style.borderRadius = '10px';
+                        
+                        factDiv.innerHTML = `
+                            <div class="attachment-name" style="font-size: 11px; color: var(--text-primary); line-height: 1.3; font-weight: 500;" title="Extracted Fact">${this.escapeHtml(item.fact)}</div>
+                            <button class="action-icon-btn delete" title="Delete memory fact" onclick="event.stopPropagation(); window.localChatApp.deleteFact('${item.id}')" style="background: transparent; border: none; padding: 2px; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        `;
+                        this.memoryCoreList.appendChild(factDiv);
+                    });
+                } catch (error) {
+                    console.error('Failed to load facts:', error);
+                    this.memoryCoreList.innerHTML = `<div class="empty-state text-danger" style="font-size: 11px; text-align: center;">Failed to load profile facts.</div>`;
+                }
+            }
+
+            // Delete a profile fact
+            async deleteFact(factId) {
+                if (!window.confirm("Are you sure you want to delete this fact from your profile? The AI will forget this preference.")) return;
+                try {
+                    const response = await fetch(`/facts/${encodeURIComponent(factId)}`, {
+                        method: 'DELETE'
+                    });
+                    if (response.ok) {
+                        await this.loadFacts();
+                    } else {
+                        const data = await response.json();
+                        alert(`Failed to delete fact: ${data.error}`);
+                    }
+                } catch (error) {
+                    alert(`Error deleting fact: ${error.message}`);
+                }
             }
         }
 
