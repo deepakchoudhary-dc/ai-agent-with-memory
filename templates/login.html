@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth - Local AI Memory Companion</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        :root[data-theme="dark"] {
+            --bg-primary: #090d16;
+            --panel-bg: rgba(22, 30, 49, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            --accent: #8b5cf6;
+            --accent-gradient: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+            --accent-glow: rgba(139, 92, 246, 0.3);
+            
+            --input-bg: rgba(15, 23, 42, 0.6);
+            --glass-blur: blur(16px);
+            --danger: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: 
+                radial-gradient(circle at 10% 20%, var(--accent-glow) 0%, transparent 40%),
+                var(--bg-primary);
+            color: var(--text-primary);
+            padding: 16px;
+        }
+
+        .auth-card {
+            width: 100%;
+            max-width: 420px;
+            background: var(--panel-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--panel-border);
+            border-radius: 24px;
+            padding: 40px 32px;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+            text-align: center;
+        }
+
+        .brand-logo {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            background: var(--accent-gradient);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 20px;
+            box-shadow: 0 4px 14px var(--accent-glow);
+            margin-bottom: 24px;
+        }
+
+        h2 {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        p.subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--panel-border);
+            background: var(--input-bg);
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .error-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+            font-size: 13px;
+            font-weight: 600;
+            padding: 12px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            background: var(--accent-gradient);
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 14px var(--accent-glow);
+            transition: all 0.2s ease;
+            margin-top: 10px;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px var(--accent-glow);
+            filter: brightness(1.1);
+        }
+
+        .auth-toggle {
+            margin-top: 24px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .auth-toggle a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .auth-toggle a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-card">
+        <div class="brand-logo">M</div>
+        <h2 id="auth-title">Welcome Back</h2>
+        <p class="subtitle" id="auth-subtitle">Login to access your local memory companion</p>
+        
+        {% if error %}
+        <div class="error-banner">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form id="auth-form" method="POST" action="/{{ action or 'login' }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter your password">
+            </div>
+            
+            <button type="submit" class="btn-submit" id="btn-submit">Log In</button>
+        </form>
+        
+        <div class="auth-toggle">
+            <span id="toggle-text">Don't have an account?</span>
+            <a id="toggle-link" onclick="toggleAuthMode()">Sign Up</a>
+        </div>
+    </div>
+
+    <script>
+        let currentMode = "{{ action or 'login' }}";
+
+        function toggleAuthMode() {
+            const form = document.getElementById('auth-form');
+            const title = document.getElementById('auth-title');
+            const subtitle = document.getElementById('auth-subtitle');
+            const btnSubmit = document.getElementById('btn-submit');
+            const toggleText = document.getElementById('toggle-text');
+            const toggleLink = document.getElementById('toggle-link');
+
+            if (currentMode === 'login') {
+                currentMode = 'register';
+                form.action = '/register';
+                title.innerText = 'Create Account';
+                subtitle.innerText = 'Sign up to build your local-first memory index';
+                btnSubmit.innerText = 'Register';
+                toggleText.innerText = 'Already have an account?';
+                toggleLink.innerText = 'Log In';
+            } else {
+                currentMode = 'login';
+                form.action = '/login';
+                title.innerText = 'Welcome Back';
+                subtitle.innerText = 'Login to access your local memory companion';
+                btnSubmit.innerText = 'Log In';
+                toggleText.innerText = "Don't have an account?";
+                toggleLink.innerText = 'Sign Up';
+            }
+        }
+
+        // Initialize display if mode was set from backend context
+        if (currentMode === 'register') {
+            currentMode = 'login'; // trick toggle to set register
+            toggleAuthMode();
+        }
+    </script>
+</body>
+</html>

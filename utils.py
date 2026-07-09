@@ -31,6 +31,16 @@ class ChatHistoryManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
+            # Create users table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
             # Create messages table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS messages (
@@ -47,16 +57,19 @@ class ChatHistoryManager:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
+                    user_id TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
                     title TEXT
                 )
             ''')
 
+            # Create attachments table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS attachments (
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
+                    user_id TEXT,
                     filename TEXT NOT NULL,
                     content_type TEXT,
                     content TEXT NOT NULL,
@@ -64,26 +77,63 @@ class ChatHistoryManager:
                 )
             ''')
 
-            # Create user_facts table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS user_facts (
-                    id TEXT PRIMARY KEY,
-                    fact TEXT UNIQUE NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+            # Migrate/recreate user_facts table if it exists without user_id
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_facts'")
+            has_user_facts = cursor.fetchone()
+            
+            recreate_user_facts = False
+            if has_user_facts:
+                cursor.execute("PRAGMA table_info(user_facts)")
+                cols = [info[1] for info in cursor.fetchall()]
+                if 'user_id' not in cols:
+                    recreate_user_facts = True
+            
+            if recreate_user_facts:
+                logger.info("Migrating user_facts table to include user_id and composite UNIQUE constraint")
+                cursor.execute("ALTER TABLE user_facts RENAME TO user_facts_old")
+                cursor.execute('''
+                    CREATE TABLE user_facts (
+                        id TEXT PRIMARY KEY,
+                        fact TEXT NOT NULL,
+                        user_id TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, fact)
+                    )
+                ''')
+                cursor.execute("INSERT INTO user_facts (id, fact, created_at) SELECT id, fact, created_at FROM user_facts_old")
+                cursor.execute("DROP TABLE user_facts_old")
+            else:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS user_facts (
+                        id TEXT PRIMARY KEY,
+                        fact TEXT NOT NULL,
+                        user_id TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id, fact)
+                    )
+                ''')
+
+            # Add user_id column to other tables if missing
+            for table in ['sessions', 'attachments']:
+                cursor.execute(f"PRAGMA table_info({table})")
+                cols = [info[1] for info in cursor.fetchall()]
+                if 'user_id' not in cols:
+                    logger.info(f"Adding user_id column to {table} table")
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT")
             
             # Create indexes for better performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_session_id ON messages(session_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_role ON messages(role)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attachment_session_id ON attachments(session_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_facts_user_id ON user_facts(user_id)')
             
             conn.commit()
             conn.close()
             logger.info("Database initialized successfully")
     
-    def add_message(self, session_id: str, role: str, content: str) -> str:
+    def add_message(self, session_id: str, role: str, content: str, user_id: str) -> str:
         """Add a new message to the database."""
         message_id = str(uuid.uuid4())
         timestamp = datetime.now()
@@ -101,9 +151,9 @@ class ChatHistoryManager:
             
             # Update or create session without clobbering manually edited titles
             cursor.execute('''
-                INSERT OR IGNORE INTO sessions (session_id, created_at, last_activity, title)
-                VALUES (?, ?, ?, ?)
-            ''', (session_id, timestamp, timestamp, generated_title))
+                INSERT OR IGNORE INTO sessions (session_id, user_id, created_at, last_activity, title)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (session_id, user_id, timestamp, timestamp, generated_title))
 
             cursor.execute('''
                 UPDATE sessions
@@ -112,8 +162,8 @@ class ChatHistoryManager:
                         WHEN title IS NULL OR title = '' THEN ?
                         ELSE title
                     END
-                WHERE session_id = ?
-            ''', (timestamp, generated_title, session_id))
+                WHERE session_id = ? AND (user_id = ? OR user_id IS NULL)
+            ''', (timestamp, generated_title, session_id, user_id))
             
             conn.commit()
             conn.close()
@@ -137,11 +187,17 @@ class ChatHistoryManager:
             conn.commit()
             conn.close()
     
-    def get_session_messages(self, session_id: str, limit: Optional[int] = None) -> List[Dict]:
+    def get_session_messages(self, session_id: str, user_id: str, limit: Optional[int] = None) -> List[Dict]:
         """Get all messages for a specific session."""
         with self.lock:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+            
+            # Verify ownership
+            cursor.execute('SELECT 1 FROM sessions WHERE session_id = ? AND (user_id = ? OR user_id IS NULL)', (session_id, user_id))
+            if not cursor.fetchone():
+                conn.close()
+                return []
             
             query = '''
                 SELECT id, role, content, timestamp
@@ -168,11 +224,17 @@ class ChatHistoryManager:
         
         return messages
     
-    def get_recent_messages(self, session_id: str, limit: int = 10) -> List[Dict]:
+    def get_recent_messages(self, session_id: str, user_id: str, limit: int = 10) -> List[Dict]:
         """Get recent messages from a session."""
         with self.lock:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+            
+            # Verify ownership
+            cursor.execute('SELECT 1 FROM sessions WHERE session_id = ? AND (user_id = ? OR user_id IS NULL)', (session_id, user_id))
+            if not cursor.fetchone():
+                conn.close()
+                return []
             
             cursor.execute('''
                 SELECT id, role, content, timestamp
@@ -196,7 +258,7 @@ class ChatHistoryManager:
         
         return messages
     
-    def get_all_sessions(self) -> List[Dict]:
+    def get_all_sessions(self, user_id: str) -> List[Dict]:
         """Get all chat sessions with metadata."""
         with self.lock:
             conn = sqlite3.connect(self.db_path)
@@ -207,9 +269,10 @@ class ChatHistoryManager:
                        COUNT(m.id) as message_count
                 FROM sessions s
                 LEFT JOIN messages m ON s.session_id = m.session_id
+                WHERE s.user_id = ? OR s.user_id IS NULL
                 GROUP BY s.session_id
                 ORDER BY s.last_activity DESC
-            ''')
+            ''', (user_id,))
             
             rows = cursor.fetchall()
             conn.close()
@@ -226,13 +289,13 @@ class ChatHistoryManager:
         
         return sessions
 
-    def search_sessions(self, query: str, limit: int = 50) -> List[Dict]:
+    def search_sessions(self, query: str, user_id: str, limit: int = 50) -> List[Dict]:
         """Search sessions by title or message content."""
         normalized_query = query.strip().lower()
         if not normalized_query:
-            return self.get_all_sessions()[:limit]
+            return self.get_all_sessions(user_id)[:limit]
 
-        sessions = self.get_all_sessions()
+        sessions = self.get_all_sessions(user_id)
         matched_sessions = []
 
         with self.lock:
@@ -268,7 +331,7 @@ class ChatHistoryManager:
 
         return matched_sessions[:limit]
 
-    def rename_session(self, session_id: str, title: str) -> bool:
+    def rename_session(self, session_id: str, title: str, user_id: str) -> bool:
         """Rename a session."""
         cleaned_title = title.strip()
         if not cleaned_title:
@@ -278,8 +341,8 @@ class ChatHistoryManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute(
-                'UPDATE sessions SET title = ? WHERE session_id = ?',
-                (cleaned_title, session_id)
+                'UPDATE sessions SET title = ? WHERE session_id = ? AND (user_id = ? OR user_id IS NULL)',
+                (cleaned_title, session_id, user_id)
             )
             updated = cursor.rowcount > 0
             conn.commit()
@@ -287,11 +350,17 @@ class ChatHistoryManager:
 
         return updated
 
-    def delete_session(self, session_id: str) -> bool:
+    def delete_session(self, session_id: str, user_id: str) -> bool:
         """Delete a session and all of its messages."""
         with self.lock:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+            # Verify ownership
+            cursor.execute('SELECT 1 FROM sessions WHERE session_id = ? AND (user_id = ? OR user_id IS NULL)', (session_id, user_id))
+            if not cursor.fetchone():
+                conn.close()
+                return False
+            
             cursor.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
             cursor.execute('DELETE FROM attachments WHERE session_id = ?', (session_id,))
             cursor.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
@@ -301,7 +370,7 @@ class ChatHistoryManager:
 
         return deleted
 
-    def add_attachment(self, session_id: str, filename: str, content: str, content_type: str = None) -> str:
+    def add_attachment(self, session_id: str, filename: str, content: str, content_type: str = None, user_id: str = None) -> str:
         """Store a file attachment for a chat session."""
         attachment_id = str(uuid.uuid4())
         stored_content = content[:30000]
@@ -311,33 +380,39 @@ class ChatHistoryManager:
             cursor = conn.cursor()
             cursor.execute(
                 '''
-                    INSERT INTO attachments (id, session_id, filename, content_type, content, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO attachments (id, session_id, user_id, filename, content_type, content, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''',
-                (attachment_id, session_id, filename, content_type, stored_content, datetime.now())
+                (attachment_id, session_id, user_id, filename, content_type, stored_content, datetime.now())
             )
 
             cursor.execute('''
-                INSERT OR IGNORE INTO sessions (session_id, created_at, last_activity, title)
-                VALUES (?, ?, ?, ?)
-            ''', (session_id, datetime.now(), datetime.now(), None))
+                INSERT OR IGNORE INTO sessions (session_id, user_id, created_at, last_activity, title)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (session_id, user_id, datetime.now(), datetime.now(), None))
 
             cursor.execute('''
                 UPDATE sessions
                 SET last_activity = ?
-                WHERE session_id = ?
-            ''', (datetime.now(), session_id))
+                WHERE session_id = ? AND (user_id = ? OR user_id IS NULL)
+            ''', (datetime.now(), session_id, user_id))
 
             conn.commit()
             conn.close()
 
         return attachment_id
 
-    def get_session_attachments(self, session_id: str) -> List[Dict]:
+    def get_session_attachments(self, session_id: str, user_id: str) -> List[Dict]:
         """Get all file attachments for a session."""
         with self.lock:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+            # Verify ownership
+            cursor.execute('SELECT 1 FROM sessions WHERE session_id = ? AND (user_id = ? OR user_id IS NULL)', (session_id, user_id))
+            if not cursor.fetchone():
+                conn.close()
+                return []
+                
             cursor.execute(
                 '''
                     SELECT id, filename, content_type, content, created_at
@@ -362,24 +437,25 @@ class ChatHistoryManager:
 
         return attachments
     
-    def get_messages_with_embeddings(self, exclude_session: str = None) -> List[Dict]:
+    def get_messages_with_embeddings(self, user_id: str, exclude_session: str = None) -> List[Dict]:
         """Get all messages with embeddings for similarity search."""
         with self.lock:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             query = '''
-                SELECT id, session_id, role, content, timestamp, embedding
-                FROM messages
-                WHERE embedding IS NOT NULL
+                SELECT m.id, m.session_id, m.role, m.content, m.timestamp, m.embedding
+                FROM messages m
+                JOIN sessions s ON m.session_id = s.session_id
+                WHERE m.embedding IS NOT NULL AND (s.user_id = ? OR s.user_id IS NULL)
             '''
             
-            params = []
+            params = [user_id]
             if exclude_session:
-                query += ' AND session_id != ?'
+                query += ' AND m.session_id != ?'
                 params.append(exclude_session)
             
-            query += ' ORDER BY timestamp DESC'
+            query += ' ORDER BY m.timestamp DESC'
             
             cursor.execute(query, params)
             rows = cursor.fetchall()
@@ -422,8 +498,8 @@ class ChatHistoryManager:
             logger.error(f"Database health check failed: {str(e)}")
             return False
 
-    def add_fact(self, fact: str) -> Optional[str]:
-        """Add a new fact, ignoring duplicates."""
+    def add_fact(self, fact: str, user_id: str) -> Optional[str]:
+        """Add a new fact, ignoring duplicates for this user."""
         cleaned_fact = fact.strip()
         if not cleaned_fact:
             return None
@@ -433,9 +509,9 @@ class ChatHistoryManager:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO user_facts (id, fact)
-                    VALUES (?, ?)
-                ''', (fact_id, cleaned_fact))
+                    INSERT INTO user_facts (id, fact, user_id)
+                    VALUES (?, ?, ?)
+                ''', (fact_id, cleaned_fact, user_id))
                 conn.commit()
                 conn.close()
                 logger.info(f"Stored user fact: {cleaned_fact}")
@@ -448,7 +524,7 @@ class ChatHistoryManager:
                 logger.error(f"Failed to add fact: {str(e)}")
                 return None
 
-    def get_all_facts(self) -> List[Dict[str, Any]]:
+    def get_all_facts(self, user_id: str) -> List[Dict[str, Any]]:
         """Retrieve all stored user facts."""
         with self.lock:
             try:
@@ -457,8 +533,9 @@ class ChatHistoryManager:
                 cursor.execute('''
                     SELECT id, fact, created_at
                     FROM user_facts
+                    WHERE user_id = ? OR user_id IS NULL
                     ORDER BY created_at DESC
-                ''')
+                ''', (user_id,))
                 rows = cursor.fetchall()
                 conn.close()
                 return [{'id': r[0], 'fact': r[1], 'created_at': r[2]} for r in rows]
@@ -466,19 +543,127 @@ class ChatHistoryManager:
                 logger.error(f"Failed to get facts: {str(e)}")
                 return []
 
-    def delete_fact(self, fact_id: str) -> bool:
-        """Delete a fact by ID."""
+    def delete_fact(self, fact_id: str, user_id: str) -> bool:
+        """Delete a fact by ID and user ownership."""
         with self.lock:
             try:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
-                cursor.execute('DELETE FROM user_facts WHERE id = ?', (fact_id,))
+                cursor.execute('DELETE FROM user_facts WHERE id = ? AND (user_id = ? OR user_id IS NULL)', (fact_id, user_id))
                 deleted = cursor.rowcount > 0
                 conn.commit()
                 conn.close()
                 return deleted
             except Exception as e:
                 logger.error(f"Failed to delete fact: {str(e)}")
+                return False
+
+    def create_user(self, username: str, password_hash: str) -> Optional[str]:
+        """Create a new user in the database."""
+        user_id = str(uuid.uuid4())
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO users (id, username, password_hash)
+                    VALUES (?, ?, ?)
+                ''', (user_id, username, password_hash))
+                conn.commit()
+                conn.close()
+                logger.info(f"User created: {username}")
+                return user_id
+            except sqlite3.IntegrityError:
+                logger.warning(f"Username already exists: {username}")
+                return None
+            except Exception as e:
+                logger.error(f"Failed to create user: {str(e)}")
+                return None
+
+    def get_user_by_username(self, username: str) -> Optional[Dict]:
+        """Get user details by username."""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('SELECT id, username, password_hash, created_at FROM users WHERE username = ?', (username,))
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    return {
+                        'id': row[0],
+                        'username': row[1],
+                        'password_hash': row[2],
+                        'created_at': row[3]
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"Failed to get user: {str(e)}")
+                return None
+
+    def get_user_by_id(self, user_id: str) -> Optional[Dict]:
+        """Get user details by ID."""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('SELECT id, username, password_hash, created_at FROM users WHERE id = ?', (user_id,))
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    return {
+                        'id': row[0],
+                        'username': row[1],
+                        'password_hash': row[2],
+                        'created_at': row[3]
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"Failed to get user by id: {str(e)}")
+                return None
+
+    def delete_attachment(self, attachment_id: str, user_id: str) -> bool:
+        """Delete a specific attachment by ID and user ownership."""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT 1 FROM attachments a
+                    JOIN sessions s ON a.session_id = s.session_id
+                    WHERE a.id = ? AND (s.user_id = ? OR s.user_id IS NULL)
+                ''', (attachment_id, user_id))
+                if not cursor.fetchone():
+                    conn.close()
+                    return False
+                
+                cursor.execute('DELETE FROM attachments WHERE id = ?', (attachment_id,))
+                deleted = cursor.rowcount > 0
+                conn.commit()
+                conn.close()
+                return deleted
+            except Exception as e:
+                logger.error(f"Failed to delete attachment: {str(e)}")
+                return False
+
+    def clear_session_attachments(self, session_id: str, user_id: str) -> bool:
+        """Delete all attachments for a specific session."""
+        with self.lock:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute('SELECT 1 FROM sessions WHERE session_id = ? AND (user_id = ? OR user_id IS NULL)', (session_id, user_id))
+                if not cursor.fetchone():
+                    conn.close()
+                    return False
+                
+                cursor.execute('DELETE FROM attachments WHERE session_id = ?', (session_id,))
+                deleted = cursor.rowcount > 0
+                conn.commit()
+                conn.close()
+                return deleted
+            except Exception as e:
+                logger.error(f"Failed to clear session attachments: {str(e)}")
                 return False
 
 class MemorySystem:
@@ -516,22 +701,24 @@ class MemorySystem:
             raise
     
     def search_relevant_memories(self, query_embedding: np.ndarray, 
-                                current_session_id: str, k: int = 5) -> List[Dict]:
+                                current_session_id: str, user_id: str, k: int = 5) -> List[Dict]:
         """
         Search for relevant memories using semantic similarity.
         
         Args:
             query_embedding: Embedding of the current query
             current_session_id: Current session ID to exclude from search
+            user_id: ID of the user performing the search
             k: Number of top similar memories to return
         
         Returns:
-            List of relevant memories with similarity scores        """
+            List of relevant memories with similarity scores
+        """
         if not self.chat_manager:
             raise RuntimeError("Chat manager not initialized")
         
-        # Get all messages with embeddings (excluding current session)
-        messages = self.chat_manager.get_messages_with_embeddings(exclude_session=current_session_id)
+        # Get all messages with embeddings (excluding current session) belonging to the user
+        messages = self.chat_manager.get_messages_with_embeddings(user_id=user_id, exclude_session=current_session_id)
         
         if not messages:
             return []
@@ -600,7 +787,7 @@ class LocalModelInterface:
         self.api_url = f"{self.base_url}/api/chat"
     
     def generate_response(self, messages: List[Dict[str, str]], 
-                         max_tokens: int = 1000, temperature: float = 0.7) -> Optional[Dict[str, str]]:
+                         max_tokens: int = 1000, temperature: float = 0.7, model_name: Optional[str] = None) -> Optional[Dict[str, str]]:
         """
         Generate response from local model with thinking process.
         
@@ -608,6 +795,7 @@ class LocalModelInterface:
             messages: List of message dictionaries with 'role' and 'content'
             max_tokens: Maximum number of tokens to generate
             temperature: Sampling temperature
+            model_name: Optional override for the model name
         
         Returns:
             Dictionary with 'thinking' and 'answer' keys, or None if failed
@@ -620,7 +808,7 @@ class LocalModelInterface:
             }]
             
             payload = {
-                "model": self.model_name,
+                "model": model_name or self.model_name,
                 "messages": thinking_messages,
                 "stream": False,
                 "options": {
@@ -629,7 +817,7 @@ class LocalModelInterface:
                 }
             }
             
-            logger.debug(f"Sending request to Ollama: {len(thinking_messages)} messages")
+            logger.debug(f"Sending request to Ollama: {len(thinking_messages)} messages using model {model_name or self.model_name}")
             
             response = requests.post(
                 self.api_url,
@@ -658,7 +846,7 @@ class LocalModelInterface:
             return None
 
     def stream_response(self, messages: List[Dict[str, str]], 
-                        max_tokens: int = 1000, temperature: float = 0.7) -> Iterator[Dict[str, str]]:
+                        max_tokens: int = 1000, temperature: float = 0.7, model_name: Optional[str] = None) -> Iterator[Dict[str, str]]:
         """Stream response chunks from local model via Ollama."""
         thinking_messages = messages + [{
             "role": "user",
@@ -666,7 +854,7 @@ class LocalModelInterface:
         }]
 
         payload = {
-            "model": self.model_name,
+            "model": model_name or self.model_name,
             "messages": thinking_messages,
             "stream": True,
             "options": {

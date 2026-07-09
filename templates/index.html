@@ -10,8 +10,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     
-    <!-- Markdown Parser (Marked) -->
+    <!-- Markdown Parser (Marked) and DOMPurify -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 
     <style>
         /* CSS Custom Variables for Light & Dark Themes */
@@ -1087,13 +1089,48 @@
             border-color: rgba(239, 68, 68, 0.15);
         }
 
-        /* Mobile Collapses */
+        /* Mobile Collapses and Navigation Drawer */
         @media (max-width: 900px) {
             .app-shell {
                 grid-template-columns: 1fr;
+                position: relative;
+                overflow: hidden;
             }
             .sidebar {
-                display: none; /* In a real product we would use a drawer toggle, but keeping it simple for desktop-first pairing */
+                position: absolute;
+                top: 0;
+                left: -290px;
+                width: 280px;
+                height: 100%;
+                z-index: 1000;
+                transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+                display: flex !important;
+            }
+            .sidebar.open {
+                left: 0;
+            }
+            .sidebar-overlay {
+                display: none;
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                backdrop-filter: blur(2px);
+                z-index: 999;
+                opacity: 0;
+                transition: opacity 0.25s ease;
+            }
+            .sidebar-overlay.open {
+                display: block;
+                opacity: 1;
+            }
+            #mobile-sidebar-toggle {
+                display: inline-flex !important;
+                background: var(--item-hover-bg);
+                border: 1px solid var(--panel-border);
             }
         }
     </style>
@@ -1129,6 +1166,9 @@
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
                         </svg>
                     </button>
+                    <a href="/logout" class="btn btn-icon" title="Log Out" style="text-decoration: none; color: var(--text-primary);">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                    </a>
                 </div>
             </div>
 
@@ -1178,9 +1218,14 @@
             <div class="sidebar-section" style="border-top: 1px solid var(--panel-border);">
                 <div class="section-header">
                     <span class="section-label">Context Files</span>
-                    <button class="action-icon-btn" id="reload-attachments-btn" title="Refresh files list">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-                    </button>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <button class="action-icon-btn" id="reload-attachments-btn" title="Refresh files list">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                        </button>
+                        <button class="action-icon-btn delete" id="clear-attachments-btn" title="Clear all context files">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        </button>
+                    </div>
                 </div>
                 
                 <input id="attachment-input" style="display: none;" type="file" multiple>
@@ -1197,14 +1242,20 @@
                 <div id="upload-status" class="empty-state" style="margin-top: 6px; font-size: 10px;">No uploads in this chat.</div>
             </div>
         </aside>
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
         <!-- Main Chat Panel -->
         <main class="chat-panel">
             <!-- Header -->
             <header class="chat-header">
-                <div class="chat-header-info">
-                    <h2 class="chat-header-title" id="active-session-title">Chat Session</h2>
-                    <p class="chat-header-subtitle">ID: <span id="session-id-label">...</span></p>
+                <div class="chat-header-info" style="display: flex; align-items: center; gap: 12px;">
+                    <button id="mobile-sidebar-toggle" class="btn btn-icon" title="Toggle Sidebar" style="display: none; padding: 8px; border-radius: 10px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                    </button>
+                    <div>
+                        <h2 class="chat-header-title" id="active-session-title">Chat Session</h2>
+                        <p class="chat-header-subtitle">ID: <span id="session-id-label">...</span></p>
+                    </div>
                 </div>
                 <div class="chat-header-actions">
                     <div class="model-select-group" style="display: flex; align-items: center; gap: 8px; margin-right: 8px;">
@@ -1238,6 +1289,9 @@
                             <button id="send-btn" class="btn btn-primary btn-icon" style="width: 42px; height: 42px; border-radius: 14px;" type="submit" title="Send message">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                             </button>
+                            <button id="stop-btn" class="btn btn-secondary btn-icon" style="width: 42px; height: 42px; border-radius: 14px; display: none;" type="button" title="Stop generating">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                            </button>
                         </div>
                     </div>
                 </form>
@@ -1270,13 +1324,15 @@
         class LocalChatApp {
             constructor() {
                 this.currentSessionId = INITIAL_SESSION_ID;
-                this.isDarkTheme = true;
+                this.isDarkTheme = localStorage.getItem('theme') !== 'light';
+                this.activeAbortController = null;
                 
                 // Elements mapping
                 this.messagesEl = document.getElementById('messages');
                 this.chatForm = document.getElementById('chat-form');
                 this.chatInput = document.getElementById('chat-input');
                 this.sendBtn = document.getElementById('send-btn');
+                this.stopBtn = document.getElementById('stop-btn');
                 this.typingIndicator = document.getElementById('typing-indicator');
                 this.typingStateText = document.getElementById('typing-state-text');
                 this.sessionsList = document.getElementById('sessions-list');
@@ -1298,6 +1354,20 @@
                 this.setupEventListeners();
                 this.loadAvailableModels();
                 this.initApp();
+            }
+
+            async fetchWithCsrf(url, options = {}) {
+                if (!options.headers) {
+                    options.headers = {};
+                }
+                const method = (options.method || 'GET').toUpperCase();
+                if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+                    const tokenMeta = document.querySelector('meta[name="csrf-token"]');
+                    if (tokenMeta) {
+                        options.headers['X-CSRFToken'] = tokenMeta.getAttribute('content');
+                    }
+                }
+                return fetch(url, options);
             }
 
             setupEventListeners() {
@@ -1325,6 +1395,28 @@
                 document.getElementById('upload-btn').addEventListener('click', () => this.attachmentInput.click());
                 document.getElementById('reload-attachments-btn').addEventListener('click', () => this.loadAttachments());
                 
+                const clearAttBtn = document.getElementById('clear-attachments-btn');
+                if (clearAttBtn) {
+                    clearAttBtn.addEventListener('click', () => this.clearAttachments());
+                }
+                
+                // Stop generating listener
+                if (this.stopBtn) {
+                    this.stopBtn.addEventListener('click', () => {
+                        if (this.activeAbortController) {
+                            this.activeAbortController.abort();
+                            this.activeAbortController = null;
+                            this.setLoadingState(false);
+                            this.renderToast("Generation stopped by user", false);
+                        }
+                    });
+                }
+
+                // Model selection persistence listener
+                this.modelSelector.addEventListener('change', () => {
+                    localStorage.setItem('selectedModel', this.modelSelector.value);
+                });
+
                 // File uploads change listener
                 this.attachmentInput.addEventListener('change', (e) => this.handleFileUpload(e));
 
@@ -1339,6 +1431,21 @@
 
                 // Theme switch listener
                 this.themeToggle.addEventListener('click', () => this.toggleTheme());
+
+                // Mobile Sidebar toggle
+                const sidebar = document.querySelector('.sidebar');
+                const overlay = document.getElementById('sidebar-overlay');
+                const mobToggle = document.getElementById('mobile-sidebar-toggle');
+                if (mobToggle && sidebar && overlay) {
+                    mobToggle.addEventListener('click', () => {
+                        sidebar.classList.toggle('open');
+                        overlay.classList.toggle('open');
+                    });
+                    overlay.addEventListener('click', () => {
+                        sidebar.classList.remove('open');
+                        overlay.classList.remove('open');
+                    });
+                }
             }
 
             async initApp() {
@@ -1490,13 +1597,13 @@
                 
                 // Pre-process markdown text to wrap custom code tags for syntax styling
                 // Highlight and code block copying will be attached after rendering
-                return marked.parse(text);
+                return DOMPurify.sanitize(marked.parse(text));
             }
 
             // Health monitoring checks
             async checkSystemHealth() {
                 try {
-                    const response = await fetch('/health');
+                    const response = await this.fetchWithCsrf('/health');
                     const data = await response.json();
                     
                     if (response.ok && data.status === 'healthy') {
@@ -1517,7 +1624,7 @@
             async loadSessions(query = '') {
                 try {
                     const url = query ? `/sessions?q=${encodeURIComponent(query)}` : '/sessions';
-                    const response = await fetch(url);
+                    const response = await this.fetchWithCsrf(url);
                     const data = await response.json();
                     
                     if (!response.ok) throw new Error(data.error || 'Failed to retrieve sessions');
@@ -1570,6 +1677,11 @@
 
             // Switch session action
             async switchSession(sessionId, title) {
+                const sidebar = document.querySelector('.sidebar');
+                const overlay = document.getElementById('sidebar-overlay');
+                if (sidebar) sidebar.classList.remove('open');
+                if (overlay) overlay.classList.remove('open');
+
                 if (sessionId === this.currentSessionId && this.messagesEl.children.length > 0 && !this.messagesEl.querySelector('.welcome-dashboard')) return;
                 
                 this.currentSessionId = sessionId;
@@ -1590,7 +1702,7 @@
             async loadHistory(sessionId) {
                 try {
                     this.messagesEl.innerHTML = '';
-                    const response = await fetch(`/history/${encodeURIComponent(sessionId)}`);
+                    const response = await this.fetchWithCsrf(`/history/${encodeURIComponent(sessionId)}`);
                     const data = await response.json();
                     
                     if (!response.ok) throw new Error(data.error || 'Failed to download chat history');
@@ -1617,7 +1729,7 @@
             async createNewSession() {
                 this.setLoadingState(true, 'Creating chat');
                 try {
-                    const response = await fetch('/new_session', {
+                    const response = await this.fetchWithCsrf('/new_session', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' }
                     });
@@ -1651,7 +1763,7 @@
                 if (!titleClean) return;
                 
                 try {
-                    const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}/rename`, {
+                    const response = await this.fetchWithCsrf(`/sessions/${encodeURIComponent(sessionId)}/rename`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ title: titleClean })
@@ -1676,7 +1788,7 @@
                 if (!confirmDelete) return;
                 
                 try {
-                    const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, {
+                    const response = await this.fetchWithCsrf(`/sessions/${encodeURIComponent(sessionId)}`, {
                         method: 'DELETE'
                     });
                     const data = await response.json();
@@ -1705,7 +1817,7 @@
             // Get session file attachments list
             async loadAttachments() {
                 try {
-                    const response = await fetch(`/attachments?session_id=${encodeURIComponent(this.currentSessionId)}`);
+                    const response = await this.fetchWithCsrf(`/attachments?session_id=${encodeURIComponent(this.currentSessionId)}`);
                     const data = await response.json();
                     
                     if (!response.ok) throw new Error(data.error || 'Failed to fetch files');
@@ -1727,6 +1839,9 @@
                         itemDiv.innerHTML = `
                             <div class="attachment-name" title="${this.escapeHtml(file.filename)}">${this.escapeHtml(file.filename)}</div>
                             <div class="attachment-meta">${sizeFormatted}</div>
+                            <button class="action-icon-btn delete" title="Delete attachment" onclick="event.stopPropagation(); window.localChatApp.deleteAttachment('${file.id}')" style="background: transparent; border: none; padding: 2px; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; margin-left: 6px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
                         `;
                         this.attachmentList.appendChild(itemDiv);
                     });
@@ -1735,6 +1850,44 @@
                 } catch (error) {
                     console.error(error);
                     this.attachmentList.innerHTML = `<div class="empty-state text-danger">Failed to load files.</div>`;
+                }
+            }
+
+            // Delete an individual attachment file
+            async deleteAttachment(attachmentId) {
+                if (!window.confirm("Are you sure you want to remove this file from your chat context?")) return;
+                try {
+                    const response = await this.fetchWithCsrf(`/attachments/${encodeURIComponent(attachmentId)}`, {
+                        method: 'DELETE'
+                    });
+                    if (response.ok) {
+                        await this.loadAttachments();
+                        this.renderToast("Attachment removed", false);
+                    } else {
+                        const data = await response.json();
+                        alert(`Failed to delete attachment: ${data.error}`);
+                    }
+                } catch (error) {
+                    alert(`Error deleting attachment: ${error.message}`);
+                }
+            }
+
+            // Clear all attachments from the session
+            async clearAttachments() {
+                if (!window.confirm("Are you sure you want to remove all context files from this session?")) return;
+                try {
+                    const response = await this.fetchWithCsrf('/attachments/clear', {
+                        method: 'POST'
+                    });
+                    if (response.ok) {
+                        await this.loadAttachments();
+                        this.renderToast("All attachments cleared", false);
+                    } else {
+                        const data = await response.json();
+                        alert(`Failed to clear attachments: ${data.error}`);
+                    }
+                } catch (error) {
+                    alert(`Error clearing attachments: ${error.message}`);
                 }
             }
 
@@ -1749,7 +1902,7 @@
                 this.uploadStatus.textContent = 'Uploading files...';
                 
                 try {
-                    const response = await fetch('/attachments/upload', {
+                    const response = await this.fetchWithCsrf('/attachments/upload', {
                         method: 'POST',
                         body: formData
                     });
@@ -1803,11 +1956,15 @@
                 // Create assistant placeholder message for streaming
                 const streamNode = this.createStreamingAssistantNode();
                 
+                this.activeAbortController = new AbortController();
+                const signal = this.activeAbortController.signal;
+
                 try {
-                    const response = await fetch('/chat', {
+                    const response = await this.fetchWithCsrf('/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: messageText, stream: true, model: activeModel })
+                        body: JSON.stringify({ message: messageText, stream: true, model: activeModel }),
+                        signal: signal
                     });
                     
                     if (!response.ok) {
@@ -1817,9 +1974,14 @@
                     
                     await this.readNDJSONStream(response, streamNode);
                 } catch (error) {
-                    console.error(error);
-                    streamNode.bubbleContainer.innerHTML = `<div class="toast-notice error" style="margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span>Error: ${error.message}</span></div>`;
+                    if (error.name === 'AbortError') {
+                        logger.info("Chat stream aborted by user.");
+                    } else {
+                        console.error(error);
+                        streamNode.bubbleContainer.innerHTML = `<div class="toast-notice error" style="margin: 0;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span>Error: ${error.message}</span></div>`;
+                    }
                 } finally {
+                    this.activeAbortController = null;
                     this.setLoadingState(false);
                     this.scrollToBottom();
                 }
@@ -2207,34 +2369,37 @@
             // Load available Ollama models
             async loadAvailableModels() {
                 try {
-                    const response = await fetch('/models');
+                    const response = await this.fetchWithCsrf('/models');
                     const data = await response.json();
                     this.modelSelector.innerHTML = '';
+                    
+                    const savedModel = localStorage.getItem('selectedModel');
                     
                     if (data.models && data.models.length > 0) {
                         data.models.forEach(modelName => {
                             const option = document.createElement('option');
                             option.value = modelName;
                             option.textContent = modelName;
-                            if (modelName === data.default) {
+                            if (savedModel ? modelName === savedModel : modelName === data.default) {
                                 option.selected = true;
                             }
                             this.modelSelector.appendChild(option);
                         });
                     } else {
-                        const fallbackModel = data.default || 'your-model-name';
+                        const fallbackModel = savedModel || data.default || 'your-model-name';
                         this.modelSelector.innerHTML = `<option value="${fallbackModel}">${fallbackModel}</option>`;
                     }
                 } catch (error) {
                     console.error('Failed to load Ollama models:', error);
-                    this.modelSelector.innerHTML = `<option value="your-model-name">your-model-name</option>`;
+                    const savedModel = localStorage.getItem('selectedModel') || 'your-model-name';
+                    this.modelSelector.innerHTML = `<option value="${savedModel}">${savedModel}</option>`;
                 }
             }
 
             // Load all extracted profile facts
             async loadFacts() {
                 try {
-                    const response = await fetch('/facts');
+                    const response = await this.fetchWithCsrf('/facts');
                     const data = await response.json();
                     this.memoryCoreList.innerHTML = '';
                     
@@ -2274,7 +2439,7 @@
             async deleteFact(factId) {
                 if (!window.confirm("Are you sure you want to delete this fact from your profile? The AI will forget this preference.")) return;
                 try {
-                    const response = await fetch(`/facts/${encodeURIComponent(factId)}`, {
+                    const response = await this.fetchWithCsrf(`/facts/${encodeURIComponent(factId)}`, {
                         method: 'DELETE'
                     });
                     if (response.ok) {
