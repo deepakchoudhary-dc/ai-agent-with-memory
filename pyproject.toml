@@ -1,0 +1,38 @@
+[tool.ruff]
+# Exclude directories that should not be linted or formatted
+exclude = [
+    ".git",
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+]
+
+# Max line length limit
+line-length = 120
+
+# Python 3.10 baseline target
+target-version = "py310"
+
+[tool.ruff.lint]
+# Select rules to run
+# E: pycodestyle errors, F: Pyflakes, I: isort, UP: pyupgrade
+select = ["E", "F", "I", "UP"]
+
+# Ignore rule E501 (line length rule, which is handled by format)
+ignore = ["E501"]
+
+# Allow unused variables if prefixed with underscore
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore unused imports in __init__.py files
+"__init__.py" = ["F401"]
+
+[tool.ruff.format]
+# Double quotes for strings
+quote-style = "double"
+# Space indentation style
+indent-style = "space"
+# Magic trailing commas respect
+skip-magic-trailing-comma = false

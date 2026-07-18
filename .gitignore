@@ -88,3 +88,11 @@ models/
 *.tmp
 *.temp
 .cache/
+
+# Local workspace scratch and agent folders
+scratch/
+.agents/
+.ruff_cache/
+
+# Project review files
+detailed.md
