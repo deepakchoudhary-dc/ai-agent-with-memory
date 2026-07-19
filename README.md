@@ -1,40 +1,46 @@
 # Local AI Chat App with Human-like Memory
 
-A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( Ollama based) with human-like memory capabilities using semantic search and embeddings.
+A sophisticated ChatGPT-like interface built with Flask that integrates LLMs (Ollama based) with human-like memory capabilities using semantic search and embeddings.
 
 ![Local AI Chat Interface](https://img.shields.io/badge/Interface-Modern%20Web%20UI-blue)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-green)
 ![Flask](https://img.shields.io/badge/Flask-3.0%2B-red)
 ![AI Model](https://img.shields.io/badge/AI-Local%20LLM-orange)
 
-## 🌟 Features
+## Features
 
 ### Core Capabilities
-- **Human-like Memory**: Semantic search through conversation history using sentence transformers
-- **Multiple Chat Sessions**: Support for multiple concurrent conversations with unique identifiers
-- **Real-time Web Interface**: Modern, responsive chat UI with real-time messaging
-- **Context-Aware Responses**: Intelligent context window management for optimal AI performance
-- **Transparent Memory**: Shows which past conversations influenced current responses
-- **Chat Management**: Search, rename, delete, and export conversations from the sidebar
-- **Markdown Responses**: Assistant replies render basic markdown and code blocks in the browser
-- **Copy Actions**: Copy assistant responses directly from each message
-- **Streaming Replies**: Assistant output now streams into the chat bubble as it is generated
-- **File Attachments**: Upload text-based files and use them as direct chat context
-- **🧠 Persistent Memory Core**: Automatically extracts and logs permanent facts/preferences about the user in a persistent profile to guide persona alignment
-- **🔄 Dynamic Model Switcher**: Change your active Ollama model instantly from a dropdown list in the interface header
+- **Human-like Memory**: Semantic search through conversation history using sentence transformers.
+- **Multiple Chat Sessions**: Support for multiple concurrent conversations with unique identifiers.
+- **Real-time Web Interface**: Modern, responsive chat UI with real-time messaging.
+- **Context-Aware Responses**: Intelligent context window management for optimal AI performance.
+- **Priority-Tiered Context Budgeting**: Implements strict token/character allocation, ensuring file attachments or long histories never crowd out core user facts.
+- **Transparent Memory**: Shows which past conversations influenced current responses.
+- **Chat Management**: Search, rename, delete, and export conversations from the sidebar.
+- **Markdown Responses**: Assistant replies render basic markdown and code blocks in the browser.
+- **Copy Actions**: Copy assistant responses directly from each message.
+- **Streaming Replies**: Assistant output streams into the chat bubble as it is generated.
+- **File Attachments**: Upload text-based files and use them as direct chat context.
+- **Persistent Memory Core**: Automatically extracts and logs permanent facts/preferences about the user in a persistent profile to guide persona alignment.
+- **Memory Inbox**: A human-in-the-loop interface that lets you approve, update, or reject memory candidate facts proposed by the background pipeline.
+- **Dynamic Model Switcher**: Change your active Ollama model instantly from a dropdown list in the interface header.
 
-### Technical Features
-- **Semantic Memory System**: Uses FAISS for efficient similarity search across embeddings
-- **Persistent Storage**: SQLite database for chat history and session management
-- **Ollama Integration**: Seamless integration with locally running AI models
-- **Thread-Safe Operations**: Concurrent user support with proper locking mechanisms
-- **Health Monitoring**: Built-in health checks for all system components
+### Technical and Security Features
+- **Semantic Memory System**: Uses FAISS for efficient similarity search across embeddings.
+- **User Authentication**: Secure register, login, and logout endpoints with password hashing.
+- **Data Isolation**: Multi-user tenancy: database queries strictly isolate sessions, facts, and attachments by owner ID.
+- **CSRF Protection**: Native Flask-WTF CSRFProtect guarding all mutating API paths.
+- **Content Security Policy**: Custom headers enforcing secure script and resource limits.
+- **Persistent Storage**: SQLite database for chat history and session management.
+- **Ollama Integration**: Seamless integration with locally running AI models.
+- **Thread-Safe Operations**: Concurrent user support with proper locking mechanisms.
+- **Health Monitoring**: Built-in health checks for all system components.
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Web Frontend  │    │  Flask Backend   │    │   LLM's/ API's   │
+│   Web Frontend  │    │  Flask Backend   │    │   LLMs/ APIs     │
 │   (HTML/JS)     │◄──►│                  │◄──►│   (via Ollama)  │
 └─────────────────┘    │  - Chat API      │    └─────────────────┘
                        │  - Session Mgmt   │
@@ -46,11 +52,65 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( 
                                                └─────────────────┘
 ```
 
-## 🚀 Quick Start
+### Visualized System Architecture Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User (Browser UI)
+    participant App as Flask Backend (app.py)
+    participant DB as SQLite Database
+    participant Vector as FAISS Vector Index
+    participant Model as Ollama Local Model
+    participant Queue as Background Worker (Thread)
+
+    User->>App: Send message (POST /chat)
+    Note over App: Generate message embedding<br/>via SentenceTransformer
+    
+    App->>DB: Query User Messages & Embeddings
+    DB-->>App: Return historical records
+    
+    App->>Vector: Load cache & search similar turns
+    Vector-->>App: Return top relevant memories (similarity > 0.3)
+    
+    App->>DB: Fetch active session attachments & facts
+    DB-->>App: Return files & Memory Core profile facts
+    
+    Note over App: Apply Priority-Tiered Budgeting:<br/>System > Facts > User Msg > Memories > Files > History
+    
+    App->>Model: Request streaming chat completion (context budgeted)
+    loop Stream Response Chunks
+        Model-->>App: Yield text chunk
+        App-->>User: Stream JSON chunk to UI bubble
+    end
+    
+    App->>DB: Persist User & Assistant messages + embeddings
+    
+    Note over App: Push task to queue:<br/>user_message + assistant_response
+    App->>Queue: Enqueue fact extraction task
+    
+    activate Queue
+    Queue->>Model: Call prompt: Extract memory updates (ADD/UPDATE/DELETE)
+    Model-->>Queue: Return raw action lines
+    
+    alt Candidate identified
+        Queue->>DB: Insert pending memory candidate
+        DB-->>App: Trigger updates notification
+        App-->>User: Render memory candidates in Memory Inbox
+    end
+    deactivate Queue
+
+    Note over User: User clicks "Approve" or "Reject"
+    User->>App: Approve candidate (POST /memory/candidates/<id>/approve)
+    App->>DB: Commit changes to user_facts (Memory Core)
+    App-->>User: Refresh Memory Core panel in sidebar
+```
+
+## Quick Start
 
 ### Prerequisites
 
-1. **Python 3.8+** installed on your system
+1. **Python 3.10+** installed on your system
 2. **Ollama** running locally with downloaded model
 3. **Git** for cloning (optional)
 
@@ -82,7 +142,7 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( 
    ```bash
    # Install Ollama first (visit https://ollama.ai)
    
-   # Pull a local model (e.g., llama3 or mistral)
+   # Pull a local model (e.g., llama3 or qwen2.5)
    ollama pull <model-name>
    
    # Verify model is running
@@ -107,21 +167,53 @@ A sophisticated ChatGPT-like interface built with Flask that integrates LLM's ( 
 
 7. **Open your browser** and navigate to `http://localhost:5000`
 
-## 💡 Usage
+## Usage
 
 ### Basic Chat
-1. Open the web interface
-2. Type your message in the input field
-3. Press Enter or click Send
-4. The AI will respond using context from your conversation history
+1. Open the web interface.
+2. Type your message in the input field.
+3. Press Enter or click Send.
+4. The AI will respond using context from your conversation history.
 
 ### Memory Features
-- **Automatic Memory**: The system automatically remembers all conversations
-- **Semantic Retrieval**: Relevant past conversations are retrieved based on context
-- **Memory Transparency**: See which memories influenced each response
-- **Session Management**: Switch between different chat sessions
+- **Automatic Memory**: The system automatically remembers all conversations.
+- **Semantic Retrieval**: Relevant past conversations are retrieved based on context.
+- **Memory Transparency**: See which memories influenced each response.
+- **Memory Inbox**: Review memory actions before they are added to the Memory Core.
+- **Session Management**: Switch between different chat sessions.
 
-### API Endpoints
+## API Endpoints
+
+### Authentication Endpoints
+
+#### User Registration
+```http
+POST /register
+Content-Type: application/json
+
+{
+  "username": "yourusername",
+  "password": "yourpassword"
+}
+```
+
+#### User Login
+```http
+POST /login
+Content-Type: application/json
+
+{
+  "username": "yourusername",
+  "password": "yourpassword"
+}
+```
+
+#### User Logout
+```http
+GET /logout
+```
+
+### Chat and Session Endpoints
 
 #### Chat Endpoint
 ```http
@@ -129,7 +221,9 @@ POST /chat
 Content-Type: application/json
 
 {
-  "message": "Your message here"
+  "message": "Your message here",
+  "stream": true,
+  "model": "your-model-name"
 }
 ```
 
@@ -138,15 +232,32 @@ Content-Type: application/json
 GET /history/<session_id>
 ```
 
+#### Get All Sessions
+```http
+GET /sessions
+```
+
 #### Start New Session
 ```http
 POST /new_session
 ```
 
-#### Health Check
+#### Delete Session
 ```http
-GET /health
+DELETE /sessions/<session_id>
 ```
+
+#### Rename Session
+```http
+POST /sessions/<session_id>/rename
+Content-Type: application/json
+
+{
+  "title": "New Session Title"
+}
+```
+
+### Memory and Fact Governance Endpoints
 
 #### Get User Profile Facts
 ```http
@@ -158,41 +269,63 @@ GET /facts
 DELETE /facts/<fact_id>
 ```
 
+#### Get Memory Inbox Candidates
+```http
+GET /memory/candidates
+```
+
+#### Approve Memory Candidate
+```http
+POST /memory/candidates/<candidate_id>/approve
+```
+
+#### Reject Memory Candidate
+```http
+POST /memory/candidates/<candidate_id>/reject
+```
+
 #### Get Available Ollama Models
 ```http
 GET /models
 ```
 
-## 🔧 Configuration
+#### Health Check
+```http
+GET /health
+```
+
+## Configuration
 
 ### Model Settings
-- **Context Length**: Adjust `MAX_CONTEXT_LENGTH` for longer conversations
-- **Memory Retrieval**: Modify `TOP_K_MEMORIES` to change how many past conversations to consider
-- **Model Selection**: Change `LOCAL_MODEL_NAME` to use different model variants
+- **Context Length**: Adjust `MAX_CONTEXT_LENGTH` for longer conversations.
+- **Memory Retrieval**: Modify `TOP_K_MEMORIES` to change how many past conversations to consider.
+- **Model Selection**: Change `LOCAL_MODEL_NAME` to use different model variants.
 
 ### Database Configuration
-- **SQLite Path**: Modify `DATABASE_PATH` to change database location
-- **Custom Database**: Replace SQLite with PostgreSQL or MySQL for production
+- **SQLite Path**: Modify `DATABASE_PATH` to change database location.
+- **Custom Database**: Replace SQLite with PostgreSQL or MySQL for production.
 
 ### Memory System Tuning
-- **Embedding Model**: Change sentence transformer model in `utils.py`
-- **Similarity Threshold**: Adjust relevance threshold in `MemorySystem.search_relevant_memories()`
-- **FAISS Index**: Modify index type for different performance characteristics
+- **Embedding Model**: Change sentence transformer model in `utils.py`.
+- **Similarity Threshold**: Adjust relevance threshold in `MemorySystem.search_relevant_memories()`.
+- **FAISS Index**: Modify index type for different performance characteristics.
 
-## 🧪 Testing
+## Testing
+
+### Automated Tests
+Run unit and integration tests locally:
+```bash
+python test_app.py
+python test_security.py
+```
 
 ### Manual Testing
-1. Start the application
-2. Open multiple browser tabs to test concurrent sessions
-3. Test memory retrieval by referencing past conversations
-4. Verify session switching works correctly
+1. Start the application.
+2. Open multiple browser tabs to test concurrent sessions.
+3. Test memory retrieval by referencing past conversations.
+4. Verify session switching works correctly.
 
-### Health Checks
-- Visit `/health` endpoint to verify all components are working
-- Check console logs for any errors or warnings
-- Monitor database file size and performance
-
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -202,19 +335,19 @@ GET /models
 - Verify local model is downloaded: `ollama pull model_name`
 
 #### Memory Not Working
-- Check if sentence-transformers is properly installed
+- Check if sentence-transformers is properly installed.
 - Verify FAISS installation: `pip install faiss-cpu`
-- Look for embedding generation errors in logs
+- Look for embedding generation errors in logs.
 
 #### Database Issues
-- Ensure write permissions in the application directory
-- Check SQLite installation
-- Verify database file is not corrupted
+- Ensure write permissions in the application directory.
+- Check SQLite installation.
+- Verify database file is not corrupted.
 
 #### Performance Issues
-- Reduce `MAX_CONTEXT_LENGTH` for faster responses
-- Lower `TOP_K_MEMORIES` to reduce memory search time
-- Consider upgrading to GPU-accelerated FAISS
+- Reduce `MAX_CONTEXT_LENGTH` for faster responses.
+- Lower `TOP_K_MEMORIES` to reduce memory search time.
+- Consider upgrading to GPU-accelerated FAISS.
 
 ### Debug Mode
 Enable debug logging by setting the environment variable:
@@ -223,7 +356,7 @@ export FLASK_DEBUG=1
 python app.py
 ```
 
-## 🛠️ Development
+## Development
 
 ### Project Structure
 ```
@@ -235,84 +368,48 @@ local-ai-chat-memory/
 ├── .env.example       # Environment variables template
 ├── templates/
 │   └── index.html     # Web interface template
-├── static/            # CSS/JS assets (optional)
-└── tests/            # Unit tests (optional)
+├── static/            # CSS/JS assets
+└── tests/            # Unit tests
 ```
 
 ### Key Components
 
 #### ChatHistoryManager
-- Manages SQLite database operations
-- Handles message storage and retrieval
-- Manages session metadata
+- Manages SQLite database operations.
+- Handles message storage and retrieval.
+- Manages session metadata.
 
 #### MemorySystem
-- Handles sentence embedding generation
-- Implements semantic search using FAISS
-- Manages similarity scoring and relevance filtering
+- Handles sentence embedding generation.
+- Implements semantic search using FAISS.
+- Manages similarity scoring and relevance filtering.
 
 #### LocalModelInterface
-- Manages communication with Ollama API
-- Handles request/response formatting
-- Implements error handling and retries
+- Manages communication with Ollama API.
+- Handles request/response formatting.
+- Implements error handling and retries.
 
-### Adding Features
-
-#### Custom Memory Filters
-Modify `MemorySystem.search_relevant_memories()` to add custom filtering:
-```python
-def search_relevant_memories(self, query_embedding, session_id, k=5, date_filter=None):
-    # Add your custom filtering logic here
-    pass
-```
-
-#### New API Endpoints
-Add new routes in `app.py`:
-```python
-@app.route('/custom_endpoint', methods=['POST'])
-def custom_endpoint():
-    # Your custom functionality
-    pass
-```
-
-## 📊 Performance Optimization
-
-### Memory Optimization
-- **Embedding Caching**: Cache frequently used embeddings
-- **Batch Processing**: Process multiple messages at once
-- **Index Optimization**: Use GPU-accelerated FAISS for large datasets
-
-### Database Optimization
-- **Indexing**: Add indexes for frequently queried columns
-- **Connection Pooling**: Implement connection pooling for high concurrency
-- **Archiving**: Archive old conversations to maintain performance
-
-### Model Optimization
-- **Quantization**: Use quantized models for faster inference
-- **Batching**: Batch multiple requests when possible
-- **Caching**: Cache model responses for identical inputs
-
-## 🔒 Security Considerations
+## Security Considerations
 
 ### Production Deployment
-- Change default secret key
-- Use environment variables for sensitive configuration
-- Implement rate limiting
-- Add authentication and authorization
-- Use HTTPS in production
+- Change default secret key.
+- Use environment variables for sensitive configuration.
+- Implement rate limiting.
+- Add authentication and authorization.
+- Use HTTPS in production.
 
 ### Data Privacy
-- Encrypt sensitive data in database
-- Implement data retention policies
-- Add user consent mechanisms
-- Regular security audits
+- Encrypt sensitive data in database.
+- Implement data retention policies.
+- Add user consent mechanisms.
+- Regular security audits.
 
-## 📈 Monitoring and Logging
+## Monitoring and Logging
 
 ### Application Monitoring
-- Monitor response times and error rates
-- Track memory usage and database performance
-- Set up alerts for system failures
+- Monitor response times and error rates.
+- Track memory usage and database performance.
+- Set up alerts for system failures.
 
 ### Logging Configuration
 Customize logging in `app.py`:
@@ -329,29 +426,25 @@ logging.basicConfig(
 )
 ```
 
-## 🤝 Contributing
+## Contributing
+1. Fork the repository.
+2. Create a feature branch.
+3. Make your changes.
+4. Add tests for new functionality.
+5. Submit a pull request.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
-
-## 📄 License
-
+## License
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
+- Ollama and LLM Creators for the excellent language models.
+- Ollama for the easy-to-use model serving platform.
+- Sentence Transformers for semantic similarity capabilities.
+- FAISS for efficient similarity search.
+- Flask for the web framework.
 
-- **Ollama and LLM Creators** for the excellent language models
-- **Ollama** for the easy-to-use model serving platform
-- **Sentence Transformers** for semantic similarity capabilities
-- **FAISS** for efficient similarity search
-- **Flask** for the web framework
-
-## 📚 Additional Resources
-
-- [Ollama Models Library](https://ollama.com/library) for finding local models to run
+## Additional Resources
+- [Ollama Models Library](https://ollama.com/library) for finding local models to run.
 - [Ollama Documentation](https://ollama.ai/docs)
 - [Sentence Transformers Documentation](https://sbert.net/)
 - [FAISS Documentation](https://faiss.ai/)
@@ -359,4 +452,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ---
 
-**Built with ❤️ for the AI community**
+**Built with support for the AI community**
